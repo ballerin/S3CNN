@@ -1,0 +1,27 @@
+# Python cache/garbage
+__pycache__/
+.ipynb_checkpoints
+
+# vscode garbage
+.vscode
+
+# Stuff that should precomputed/downloaded and logs
+precomp/
+dataset
+dataset/
+dataset/*
+logs/*
+train_data/*
+train_logs/*
+experiments/*
+experiments_save/*
+experiments\ copy/*
+
+#No Jupyter notebooks allowed. This is usually stuff I used to double check files (i.e. trash)
+*.ipynb
+
+#No local files
+train_schedule.py
+local_files/
+legacy_modules/
+

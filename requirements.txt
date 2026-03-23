@@ -1,0 +1,14 @@
+# Core deep learning library with GPU support
+torch --extra-index-url https://download.pytorch.org/whl/cu118
+
+# Math & scientific computing
+numpy
+scipy
+
+# Progress bar
+tqdm
+
+# Pickle (comes with Python standard library, no need to install separately)
+
+# Plotting
+matplotlib
