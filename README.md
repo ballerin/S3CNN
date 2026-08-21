@@ -1,10 +1,44 @@
-# Expressive SO(3)-equivariant Neural Networks
+# S3CNN: Spin-weighted Smoothing Spherical CNN
 
 Before running any script:
 
 * install the dependencies (also in `requirements.txt`)
 * run `generate_precomps.py` to precompute Wigner (small) d-matrices and test rotations
 * download the dataset (or part of) from [here](https://universityofbergen-my.sharepoint.com/:f:/g/personal/francesco_ballerin_uib_no1/Epd3GwgY0s5Hp9Pij9lAhxsBEoJDfrdwgzoVC58_ojGl8g?e=5UvH2h)
+
+## Rotation equivariance
+
+Both an swsCNN and an S3CNN are SO(3)-equivariant up to numerical error, while a classical CNN on a lat/lon grid is not (except for rotations about the z-axis). The table below compares a classical CNN and an S3CNN on the wind-prediction task: both models are trained *without* rotation augmentation and then evaluated on an input rotated by Y(π/4). The S3CNN prediction is unchanged (up to numerical error) after rotating back to the original frame, while the CNN prediction is not.
+
+<div align="center">
+<table>
+  <tr>
+    <th>Model</th>
+    <th>Ground truth</th>
+    <th>Predicted, β=0</th>
+    <th>Predicted, β=π/4</th>
+    <th>Rotation error</th>
+  </tr>
+  <tr>
+    <td>CNN</td>
+    <td><img src="figures/rescaled_NT_ground_truth.png" width="130"></td>
+    <td><img src="figures/rescaled_NT_cnn_NR.png" width="130"></td>
+    <td><img src="figures/rescaled_NT_cnn_R.png" width="130"></td>
+    <td><img src="figures/rescaled_NT_cnn_error.png" width="130"></td>
+  </tr>
+  <tr>
+    <td>S3CNN</td>
+    <td><img src="figures/rescaled_NT_ground_truth.png" width="130"></td>
+    <td><img src="figures/rescaled_NT_so3_NR.png" width="130"></td>
+    <td><img src="figures/rescaled_NT_so3_R.png" width="130"></td>
+    <td><img src="figures/rescaled_NT_so3_error.png" width="130"></td>
+  </tr>
+</table>
+</div>
+
+<p align="center"><i>0 km/h</i> &nbsp;<img src="figures/jet_colormap.png" height="14"> &nbsp;<i>28 km/h</i></p>
+
+Only the magnitude of the predicted wind vector field is shown. The rotation error (last column) is the difference between the β=0 and β=π/4 predictions, brought back to a common reference frame, which is negligible for the S3CNN, but large for the CNN.
 
 ## Precomputations
 The precomputed files are stored in `precomp/` and are the coefficients used for FFT/iFFT as well as generating the random rotations performed during test.
@@ -18,17 +52,17 @@ precomp/CONJ_PROD_<n_beta>_<MAX_L>.list
 precomp/SINES_<n_beta>.torch
 precomp/ROTATIONS_<N_ROTATIONS>.pckl
 ```
-The files `precomp/SLICE_WIGNER_N0_<n_beta>_<MAX_L>.list` and `precomp/SLICE_WIGNER_N1_<n_beta>_<MAX_L>.list` contain a subset of the full Wigner d-matrices from $L=0$ to $L=$ MAX_L (included), considering only the case column corresponding to $N=0$ and $n=1$ respectively. The angle beta is discretized according to `n_beta`, excluding the poles.
+The files `precomp/SLICE_WIGNER_N0_<n_beta>_<MAX_L>.list` and `precomp/SLICE_WIGNER_N1_<n_beta>_<MAX_L>.list` contain a subset of the full Wigner $d$-matrices $d^l_{m,n}$ from $l=0$ to $l=$ MAX_L (included), considering only the column corresponding to spin $n=0$ and $n=1$ respectively (i.e. scalar and vector fields, in the notation of the paper). The angle $\beta$ is discretized according to `n_beta`, excluding the poles.
 
-The file `precomp/FULL_WIGNER_<n_beta>_<MAX_L>.list` contains all the Wigner d-matrices from L=0 to L=MAX_L discretized for `n_beta` equidistant angles from 0 to $\pi$ excluding the poles, indexed by $m,n\in\mathbb R$, $-L\leq m,n \leq L$.
+The file `precomp/FULL_WIGNER_<n_beta>_<MAX_L>.list` contains all the Wigner $d$-matrices $d^l_{m,n}$ from $l=0$ to $l=$ MAX_L discretized for `n_beta` equidistant angles from 0 to $\pi$ excluding the poles, indexed by $m,n\in\mathbb Z$, $-l\leq m,n \leq l$.
 
-The file `precomp/BDELTAS.list` contains the Wigner d-matrices from L=0 to L=MAX_L considering only $\beta=\frac{\pi}{2}$ and with the $\Delta$ formalism as in the paper.
+The file `precomp/BDELTAS_<n_beta>_<MAX_L>.list` contains the matrices $\Delta^l = d^l(\pi/2)$ from $l=0$ to $l=$ MAX_L, i.e. the Wigner $d$-matrices evaluated at $\beta=\frac{\pi}{2}$, used in the "Delta method" of the paper.
 
-The file `precomp/CONJ_PROD.list` consists of the precomputed products of Delta matrices (BDELTAS.list).
+The file `precomp/CONJ_PROD_<n_beta>_<MAX_L>.list` consists of the precomputed products $\Delta^l_{s,m}\Delta^l_{s,n}$ of the $\Delta$ matrices (`BDELTAS`).
 
-The file `precomp/SINES.list` consists of a precomputed mash of the sine function used for the Delta FFT method.
+The file `precomp/SINES_<n_beta>.torch` consists of a precomputed mesh of the sine function ($\sin\beta$) used for the Delta FFT method.
 
-The file `precomp/test_rotations.pckl` contains a list of randomly generated rotation angles used during test.
+The file `precomp/ROTATIONS_<N_ROTATIONS>.pckl` contains a list of randomly generated rotation angles used during test.
 
 ## Experiment types
 
@@ -44,19 +78,19 @@ The file `precomp/test_rotations.pckl` contains a list of randomly generated rot
 
 ## Models
 
-We have implemented the following models
+We have implemented the following models. In the notation of the paper, `SO3*` models correspond to the proposed **S3CNN** (spin-weighted smoothing spherical CNN, full unconstrained SO(3) convolution followed by a smoothing operator), `Spins*` models correspond to the **swsCNN** baseline (spin-weighted spherical CNN, with spin-restricted filters), and `CNN*` models correspond to the classical Euclidean **CNN** baseline.
 
 | key                          | Description                                 
 | --------------------- | --------------------------------------------------------- |
-| `SO3UNet`             | UNet architecture with full-SO(3) equiv. layers           |
-| `SpinsSO3UNet`        | UNet architecture with spin-weighted equiv. layers        |
-| `CNNUNet`             | CNN UNet architecture                                     |
-| `SO3autoencoder`      | Autoencoder architecture with full-SO(3) equiv layers     |
-| `SpinsSO3autoencoder` | Autoencoder architecture with spin-weighted equiv. layers |
-| `CNNautoencoder`      | Autoencoder architecture based on CNN                     |
-| `SO3MNIST`            | Equivariant classifier based on full-SO(3) layers         |
-| `SpinsSO3MNIST`       | Equivariant classifier based on spin-weighted layers      |
-| `CNNMNIST`            | Classifier based on conv. layers                          |
+| `SO3UNet`             | UNet architecture with full-SO(3) equiv. layers (S3CNN)          |
+| `SpinsSO3UNet`        | UNet architecture with spin-weighted equiv. layers (swsCNN)       |
+| `CNNUNet`             | CNN UNet architecture (CNN baseline)                                    |
+| `SO3autoencoder`      | Autoencoder architecture with full-SO(3) equiv layers (S3CNN)    |
+| `SpinsSO3autoencoder` | Autoencoder architecture with spin-weighted equiv. layers (swsCNN) |
+| `CNNautoencoder`      | Autoencoder architecture based on CNN (CNN baseline)                    |
+| `SO3MNIST`            | Equivariant classifier based on full-SO(3) layers (S3CNN)        |
+| `SpinsSO3MNIST`       | Equivariant classifier based on spin-weighted layers (swsCNN)     |
+| `CNNMNIST`            | Classifier based on conv. layers (CNN baseline)                         |
 
 ### SO(3)-Equivariant models
 
@@ -66,12 +100,12 @@ We have implemented the following models
 | `fft_method`  | `full` or `delta` | Only `full` is currently implemented. Fast but not sp.-eff.  |
 | `n_alpha`     |  int              | Longitude resolution (usually 120 or 360)                    |
 | `n_beta`      |  int              | Latitude resolution excluding poles (usually 59 or 179)      |
-| `resolutions` |  list of ints     | List of massimum order of Fourier coefficients at each layer |
+| `resolutions` |  list of ints     | List of maximum degree $l$ (band-limit) of Fourier coefficients at each layer |
 | `widths`      |  list of ints     | List of channels at each layer                               |
-| `spins`       |  list of lists    | List of spins (0,1) at each layer. Both= half channels each  |
+| `spins`       |  list of lists    | List of spins $n\in\{0,1\}$ at each layer. Both = half channels each  |
 
 ```
-model = SO3UNet(layer_style="so3",
+model = SO3UNet(layer_type="so3",
                 fft_method="full",
                 n_alpha = 360, n_beta=179,
                 resolutions = [179, 100, 50, 100, 179],
@@ -196,4 +230,4 @@ To generate the plots use the files `plot_windwind.py`, `plot_tempwind.py`, and 
 - Erlend Grong (Universitetet i Bergen - Department of Mathematics)
 - Nello Blaser (Universitetet i Bergen - Department of Informatics)
 
-For any question: francesco.ballerin@uib.no .
+For any question: francesco@ballerin.it .
