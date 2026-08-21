@@ -8,42 +8,42 @@ import pickle
 #ours_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
 
 
-scnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
-scnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
+swscnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
+swscnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
 
-scnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_train_losses.pckl", "rb"))
-scnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_val_losses.pckl", "rb"))
+swscnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_train_losses.pckl", "rb"))
+swscnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_val_losses.pckl", "rb"))
 
-gscnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
-gscnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
+s3cnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
+s3cnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
 
-gscnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
-gscnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
+s3cnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
+s3cnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
 
-fig = plt.figure(figsize=(10, 6))
+fig = plt.figure(figsize=(8, 4))
 ax = fig.add_subplot(1, 1, 1)
 ax.set_xlabel("Epoch")
 ax.set_ylabel("Loss (lower is better)")
-ax.plot(scnn_onespin_train_losses, label="sCNN single spin (train)", color="#FFBB28", linestyle="dotted")
-ax.plot(scnn_onespin_val_losses, label="sCNN single spin (val)", color="#FFBB28")
+ax.plot(swscnn_onespin_train_losses, label="swsCNN single spin (train)", color="#D81B60", linestyle="dotted")
+ax.plot(swscnn_onespin_val_losses, label="swsCNN single spin (val)", color="#D81B60")
 
-ax.plot(scnn_bothspins_train_losses, label="sCNN dual spin (train)", color="#2ca02c", linestyle="dotted")
-ax.plot(scnn_bothspins_val_losses, label="sCNN dual spin (val)", color="#2ca02c")
+ax.plot(swscnn_bothspins_train_losses, label="swsCNN dual spin (train)", color="#1E88E5", linestyle="dotted")
+ax.plot(swscnn_bothspins_val_losses, label="swsCNN dual spin (val)", color="#1E88E5")
 
-ax.plot(gscnn_onespin_train_losses, label="GsCNN single spin (train)", color="#7570b3", linestyle="dotted")
-ax.plot(gscnn_onespin_val_losses, label="GsCNN single spin (val)", color="#7570b3")
+ax.plot(s3cnn_onespin_train_losses, label="S3CNN single spin (train)", color="#FFC107", linestyle="dotted")
+ax.plot(s3cnn_onespin_val_losses, label="S3CNN single spin (val)", color="#FFC107")
 
-ax.plot(gscnn_bothspins_train_losses, label="GsCNN dual spin (train)", color="#d62728", linestyle="dotted")
-ax.plot(gscnn_bothspins_val_losses, label="GsCNN dual spins (val)", color="#d62728")
+ax.plot(s3cnn_bothspins_train_losses, label="S3CNN dual spin (train)", color="#004D40", linestyle="dotted")
+ax.plot(s3cnn_bothspins_val_losses, label="S3CNN dual spins (val)", color="#004D40")
 
 trans = blended_transform_factory(ax.transAxes, ax.transData)
-ax.plot([-0.01, 0.01], [min(scnn_onespin_val_losses), min(scnn_onespin_val_losses)], transform=trans, color="#FFBB28", lw=2, clip_on=False)
-ax.plot([-0.01, 0.01], [min(scnn_bothspins_val_losses), min(scnn_bothspins_val_losses)], transform=trans, color="#2ca02c", lw=2, clip_on=False)
-ax.plot([-0.01, 0.01], [min(gscnn_onespin_val_losses), min(gscnn_onespin_val_losses)], transform=trans, color="#7570b3", lw=2, clip_on=False)
-ax.plot([-0.01, 0.01], [min(gscnn_bothspins_val_losses), min(gscnn_bothspins_val_losses)], transform=trans, color="#d62728", lw=2, clip_on=False)
+ax.plot([-0.01, 0.01], [min(swscnn_onespin_val_losses), min(swscnn_onespin_val_losses)], transform=trans, color="#D81B60", lw=2, clip_on=False)
+ax.plot([-0.01, 0.01], [min(swscnn_bothspins_val_losses), min(swscnn_bothspins_val_losses)], transform=trans, color="#1E88E5", lw=2, clip_on=False)
+ax.plot([-0.01, 0.01], [min(s3cnn_onespin_val_losses), min(s3cnn_onespin_val_losses)], transform=trans, color="#FFC107", lw=2, clip_on=False)
+ax.plot([-0.01, 0.01], [min(s3cnn_bothspins_val_losses), min(s3cnn_bothspins_val_losses)], transform=trans, color="#004D40", lw=2, clip_on=False)
 
-#ax.set_title("Train/val losses comparison for sCNN single and dual spins in wind->wind")
+#ax.set_title("Train/val losses comparison for swsCNN single and dual spins in wind->wind")
 
 #ax.legend(loc="upper center", ncol=4)
 ax.set_ylim([0, 10])
-plt.savefig("figures/one_spin_weather.png")
+plt.savefig("figures/one_spin_weather.png", bbox_inches='tight')

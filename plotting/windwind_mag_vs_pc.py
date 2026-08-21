@@ -33,7 +33,7 @@ def sanity_check():
 if __name__ == "__main__":
 
     sanity_check()
-    fig = plt.figure()
+    fig = plt.figure(figsize=(8,4))
     ax = fig.add_subplot(1, 1, 1)
     ax.set_ylim([1.5,2.4])
     ax.set_xticks(list(range(1,11)))
@@ -102,11 +102,11 @@ if __name__ == "__main__":
         ax.plot(range(1,DATASET_SIZES+1), mean_losses_PC_R_R, color=COLORS["PC"], linestyle=LINESTYLES["R/R"])
     
     plt.legend([
-        "MAG NR/NR",
-        "MAG NR/R",
-        "PC NR/NR",
-        "PC NR/R",
+        "Magnitude NR/NR",
+        "Magnitude NR/R",
+        "Phase Collapse NR/NR",
+        "Phase Collapse NR/R",
     ], loc="lower center", ncol=2, bbox_to_anchor=(0.5, 1.0))
 
 
-    plt.savefig("figures/windwind_mag_vs_pc_dataset_size.png")
+    plt.savefig("figures/windwind_mag_vs_pc_dataset_size.png", bbox_inches='tight')

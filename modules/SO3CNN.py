@@ -12,7 +12,7 @@ from .SO3fft import S2FFT
 from .SO3fft import S2iFFT
 from .SO3fft import SO3FFT, SO3iFFT
 
-from .SO3ConvLayer import SO3Conv, SpinSO3Conv
+from .SO3ConvLayer import SO3Conv, SpinSO3Conv, SO3toSO3Conv
 
 from .SpectralModules import ComplexDropout, MagnitudeNonlinearity, WeightedLeakyReLU, \
     SpatialSmoothing, SpinSpectralBatchNormalization, PhaseCollapseNonlinearity, WeightedReLU, \
@@ -75,7 +75,9 @@ class SO3CNN(nn.Module):
         Args:
             n_alpha (int): Expected initial/final longitude resolution (number of grid points).
             n_beta (int): Expected initial/final latitude resolution (number of grid points).
-            layer_style (str, optional): Type of layers to use. Either "so3" or "spins". 
+            layer_style (str, optional): Type of layers to use. One of "so3", "spins", or
+                "full_so3". "full_so3" keeps the signal on SO(3) (no SpatialSmoothing) across
+                every intermediate layer, smoothing back down to S2 only after the last layer.
                 Defaults to "so3".
             fft_method (str, optional): Type of d-matrices to use. Either "full", "delta", 
                 or "prod_delta". Defaults to "full".
@@ -170,10 +172,10 @@ class SO3CNN(nn.Module):
         if self.resolutions is None:
             raise ValueError("Resolution must be specified")
         
-        if self.layer_style not in ["so3", "spins"]:
-            raise ValueError("Layer style must be 'so3' or 'spins', not {}".format(self.layer_style))
-        
-        if self.layer_style == "so3":
+        if self.layer_style not in ["so3", "spins", "full_so3"]:
+            raise ValueError("Layer style must be 'so3', 'spins' or 'full_so3', not {}".format(self.layer_style))
+
+        if self.layer_style in ["so3", "full_so3"]:
             if self.fft_method not in ["full", "delta"]:
                 raise ValueError("Method must be 'full' or 'delta' for SO3 layers, not {}".format(self.fft_method))
 
@@ -209,7 +211,7 @@ class SO3CNN(nn.Module):
             self.wigner_n1 = None
         
         # Initialization of the full Wigner d-matrices or bdelta coefficients
-        if self.layer_style == "so3":
+        if self.layer_style in ["so3", "full_so3"]:
             if self.fft_method == "delta":
                 #TODO Re-implement this method
                 pass 
@@ -261,6 +263,22 @@ class SO3CNN(nn.Module):
                     nfeature_out=self.fs[i]['f_out'],
                     L=self.fs[i]['L'],
                 ))
+            elif self.layer_style == "full_so3":
+                # Only the first layer lifts from S2 (vector) to SO(3) (matrix); every
+                # subsequent layer both consumes and produces genuine SO(3) signals, since
+                # no smoothing collapses it back down to S2 in between.
+                if i == 0:
+                    self.convolutions.append(SO3Conv(
+                        nfeature_in=self.fs[i]['f_in'],
+                        nfeature_out=self.fs[i]['f_out'],
+                        L=self.fs[i]['L'],
+                    ))
+                else:
+                    self.convolutions.append(SO3toSO3Conv(
+                        nfeature_in=self.fs[i]['f_in'],
+                        nfeature_out=self.fs[i]['f_out'],
+                        L=self.fs[i]['L'],
+                    ))
             else:
                 self.convolutions.append(SpinSO3Conv(
                     nfeature_in=self.fs[i]['f_in'],
@@ -268,7 +286,7 @@ class SO3CNN(nn.Module):
                     L=self.fs[i]['L'],
                 ))
 
-            if self.layer_style == "so3":
+            if self.layer_style in ["so3", "full_so3"]:
                 self.iFFTs.append(SO3iFFT(
                     L= self.fs[i]['L'],
                     n_alpha = self.fs[i]['a'],
@@ -282,8 +300,8 @@ class SO3CNN(nn.Module):
                     n_beta = self.n_beta,
                     n = self.fs[i]['out_spins'],
                 ))
-            
-            if self.layer_style == "so3":
+
+            if self.layer_style in ["so3", "full_so3"]:
                 if self.use_batch_norm:
                     self.batchnorm.append(
                         SpinSpectralBatchNormalization(nfeatures = self.fs[i]['f_out'],
@@ -295,7 +313,9 @@ class SO3CNN(nn.Module):
                     self.nonlinearities.append(WeightedReLU())
                 elif self.nonlinearity_type == "leaky_relu":
                     self.nonlinearities.append(WeightedLeakyReLU())
-                self.spatial_smoothing.append(SpatialSmoothing(n=self.fs[i]['out_spins']))
+                # "full_so3" never smooths between layers -- only "so3" does, every layer.
+                if self.layer_style == "so3":
+                    self.spatial_smoothing.append(SpatialSmoothing(n=self.fs[i]['out_spins']))
             else:
                 if self.use_batch_norm:
                     self.batchnorm.append(
@@ -315,17 +335,20 @@ class SO3CNN(nn.Module):
 
             self.dropouts.append(ComplexDropout(p=0.2))
 
-            self.FFTs.append(S2FFT(
-                L=self.fs[i]['L'],
-                n=self.fs[i]['out_spins'],
-            ))
+            if self.layer_style == "full_so3":
+                self.FFTs.append(SO3FFT(L=self.fs[i]['L']))
+            else:
+                self.FFTs.append(S2FFT(
+                    L=self.fs[i]['L'],
+                    n=self.fs[i]['out_spins'],
+                ))
 
         # Input and output transforms
         self.s2fft = S2FFT(L=L, n=self.spins[0])
         self.s2ifft = S2iFFT(L=L, n_alpha=self.n_alpha, n_beta=self.n_beta, n=self.spins[-1])
-        
+
         # Only the last layer needs to convert from SO(3) to S2
-        if self.layer_style == "so3":
+        if self.layer_style in ["so3", "full_so3"]:
             self.so3_to_s2 = SO3_to_S2(L=L, n=self.spins[-1])
 
     def get_buffered_slice_wigner(self, n=1):
@@ -376,7 +399,7 @@ class SO3CNN(nn.Module):
                 if self.use_layer_norm:
                     x = self.layernorm[i](x)
 
-                if self.layer_style == "so3":
+                if self.layer_style in ["so3", "full_so3"]:
                     x = self.iFFTs[i](x, d_matrices=self.get_buffered_full_wigner())
                 else:
                     x = self.iFFTs[i](x,
@@ -385,16 +408,20 @@ class SO3CNN(nn.Module):
 
                 x = self.nonlinearities[i](x)
                 x = self.dropouts[i](x)
-                
+
+                # "full_so3" never smooths between layers -- the signal stays on SO(3)
                 if self.layer_style == "so3":
                     x = self.spatial_smoothing[i](x)
 
-                x = self.FFTs[i](x,
-                                 d_matrices_n0=self.get_buffered_slice_wigner(n=0),
-                                 d_matrices_n1=self.get_buffered_slice_wigner(n=1))
+                if self.layer_style == "full_so3":
+                    x = self.FFTs[i](x, d_matrices=self.get_buffered_full_wigner())
+                else:
+                    x = self.FFTs[i](x,
+                                     d_matrices_n0=self.get_buffered_slice_wigner(n=0),
+                                     d_matrices_n1=self.get_buffered_slice_wigner(n=1))
 
         # If x is in the SO(3) domain, we slice to S2
-        if self.layer_style == "so3":
+        if self.layer_style in ["so3", "full_so3"]:
             x = self.so3_to_s2(x)
         
         x = self.s2ifft(x,

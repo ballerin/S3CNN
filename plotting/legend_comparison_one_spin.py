@@ -2,14 +2,14 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 handles = [
-    Line2D([0], [0], color='#FFBB28', lw=2, linestyle=':', label='sCNN single spin (train)'),
-    Line2D([0], [0], color='#FFBB28', lw=2, linestyle='-', label='sCNN single spin (val)'),
-    Line2D([0], [0], color='#2ca02c', lw=2, linestyle=':', label='sCNN dual spin (train)'),
-    Line2D([0], [0], color='#2ca02c', lw=2, linestyle='-', label='sCNN dual spin (val)'),
-    Line2D([0], [0], color='#7570b3', lw=2, linestyle=':', label='GsCNN single spin (train)'),
-    Line2D([0], [0], color='#7570b3', lw=2, linestyle='-', label='GsCNN single spin (val)'),
-    Line2D([0], [0], color='#d62728', lw=2, linestyle=':', label='GsCNN dual spin (train)'),
-    Line2D([0], [0], color='#d62728', lw=2, linestyle='-', label='GsCNN dual spin (val)'),
+    Line2D([0], [0], color='#D81B60', lw=2, linestyle=':', label='swsCNN single spin (train)'),
+    Line2D([0], [0], color='#D81B60', lw=2, linestyle='-', label='swsCNN single spin (val)'),
+    Line2D([0], [0], color='#1E88E5', lw=2, linestyle=':', label='swsCNN dual spin (train)'),
+    Line2D([0], [0], color='#1E88E5', lw=2, linestyle='-', label='swsCNN dual spin (val)'),
+    Line2D([0], [0], color='#FFC107', lw=2, linestyle=':', label='S3CNN single spin (train)'),
+    Line2D([0], [0], color='#FFC107', lw=2, linestyle='-', label='S3CNN single spin (val)'),
+    Line2D([0], [0], color='#004D40', lw=2, linestyle=':', label='S3CNN dual spin (train)'),
+    Line2D([0], [0], color='#004D40', lw=2, linestyle='-', label='S3CNN dual spin (val)'),
 ]
 
 fig, ax = plt.subplots()

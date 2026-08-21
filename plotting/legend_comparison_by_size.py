@@ -5,12 +5,12 @@ handles = [
     Line2D([0], [0], color='#1b9e77', lw=2, linestyle='-', label='CNN NR/NR'),
     Line2D([0], [0], color='#1b9e77', lw=2, linestyle='--', label='CNN NR/R'),
     Line2D([0], [0], color='#1b9e77', lw=2, linestyle=':', label='CNN R/R'),
-    Line2D([0], [0], color='#d95f02', lw=2, linestyle='-', label='sCNN NR/NR'),
-    Line2D([0], [0], color='#d95f02', lw=2, linestyle='--', label='sCNN NR/R'),
-    Line2D([0], [0], color='#d95f02', lw=2, linestyle=':', label='sCNN R/R'),
-    Line2D([0], [0], color='#7570b3', lw=2, linestyle='-', label='GsCNN NR/NR'),
-    Line2D([0], [0], color='#7570b3', lw=2, linestyle='--', label='GsCNN NR/R'),
-    Line2D([0], [0], color='#7570b3', lw=2, linestyle=':', label='GsCNN R/R'),
+    Line2D([0], [0], color='#d95f02', lw=2, linestyle='-', label='swsCNN NR/NR'),
+    Line2D([0], [0], color='#d95f02', lw=2, linestyle='--', label='swsCNN NR/R'),
+    Line2D([0], [0], color='#d95f02', lw=2, linestyle=':', label='swsCNN R/R'),
+    Line2D([0], [0], color='#7570b3', lw=2, linestyle='-', label='S3CNN NR/NR'),
+    Line2D([0], [0], color='#7570b3', lw=2, linestyle='--', label='S3CNN NR/R'),
+    Line2D([0], [0], color='#7570b3', lw=2, linestyle=':', label='S3CNN R/R'),
 ]
 
 fig, ax = plt.subplots()

@@ -47,7 +47,7 @@ SPINS_NR = ["2026-03-07-mag-ln-32",]*10
 SPINS_R = ["2026-03-07-mag-ln-32",]*10
 
 if __name__ == "__main__":
-    fig = plt.figure(figsize=(10, 5))
+    fig = plt.figure(figsize=(8, 4))
     ax = fig.add_subplot(1, 1, 1)
     ax.set_ylim([1.5,2.4])
     ax.set_xticks(list(range(1,11)))
@@ -58,8 +58,8 @@ if __name__ == "__main__":
     # Color and linestyle mapping from legend
     COLORS = {
         "CNN": "#1b9e77",
-        "sCNN": "#d95f02",
-        "GsCNN": "#7570b3",
+        "swsCNN": "#d95f02",
+        "S3CNN": "#7570b3",
     }
     LINESTYLES = {
         "NR/NR": '-',
@@ -108,31 +108,31 @@ if __name__ == "__main__":
         ax.plot(range(1,DATASET_SIZES+1), mean_losses_CNN_R_R, color=COLORS["CNN"], linestyle=LINESTYLES["R/R"])
     if PLOT_DATA["SPINS_NR_NR"]:
         mean_losses_SPINS_NR_NR = [get_mean_loss(get_spins_path(ds, SPINS_NR[ds], rb=False)) for ds in range(DATASET_SIZES)]
-        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SPINS_NR_NR, color=COLORS["sCNN"], linestyle=LINESTYLES["NR/NR"])
+        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SPINS_NR_NR, color=COLORS["swsCNN"], linestyle=LINESTYLES["NR/NR"])
     if PLOT_DATA["SPINS_NR_R"]:
         mean_losses_SPINS_NR_R = [get_mean_loss(get_spins_path(ds, SPINS_NR[ds], rb=True)) for ds in range(DATASET_SIZES)]
-        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SPINS_NR_R, color=COLORS["sCNN"], linestyle=LINESTYLES["NR/R"])
+        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SPINS_NR_R, color=COLORS["swsCNN"], linestyle=LINESTYLES["NR/R"])
     if PLOT_DATA["SPINS_R_R"]:
         mean_losses_SPINS_R_R = [get_mean_loss(get_spins_r_path(ds, SPINS_R[ds])) for ds in range(DATASET_SIZES)]
-        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SPINS_R_R, color=COLORS["sCNN"], linestyle=LINESTYLES["R/R"])
+        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SPINS_R_R, color=COLORS["swsCNN"], linestyle=LINESTYLES["R/R"])
     if PLOT_DATA["SO3_NR_NR"]:
         mean_losses_SO3_NR_NR = [get_mean_loss(get_so3_path(ds, SO3_NR[ds], rb=False)) for ds in range(DATASET_SIZES)]
-        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SO3_NR_NR, color=COLORS["GsCNN"], linestyle=LINESTYLES["NR/NR"])
+        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SO3_NR_NR, color=COLORS["S3CNN"], linestyle=LINESTYLES["NR/NR"])
     if PLOT_DATA["SO3_NR_R"]:
         mean_losses_SO3_NR_R = [get_mean_loss(get_so3_path(ds, SO3_NR[ds], rb=True)) for ds in range(DATASET_SIZES)]
-        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SO3_NR_R, color=COLORS["GsCNN"], linestyle=LINESTYLES["NR/R"])
+        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SO3_NR_R, color=COLORS["S3CNN"], linestyle=LINESTYLES["NR/R"])
     if PLOT_DATA["SO3_R_R"]:
         mean_losses_SO3_R_R = [get_mean_loss(get_so3_r_path(ds, SO3_R[ds])) for ds in range(DATASET_SIZES)]
-        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SO3_R_R, color=COLORS["GsCNN"], linestyle=LINESTYLES["R/R"])
+        ax.plot(range(1,DATASET_SIZES+1), mean_losses_SO3_R_R, color=COLORS["S3CNN"], linestyle=LINESTYLES["R/R"])
 
     plt.legend(
         [
             "CNN NR/NR",
             "CNN NR/R",
-            "sCNN NR/NR",
-            "sCNN NR/R",
-            "GsCNN NR/NR",
-            "GsCNN NR/R",
+            "swsCNN NR/NR",
+            "swsCNN NR/R",
+            "S3CNN NR/NR",
+            "S3CNN NR/R",
         ],
         ncol=3,
         loc="lower center",
