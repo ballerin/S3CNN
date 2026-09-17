@@ -16,11 +16,13 @@ only itself down instead of the rest of the queue.
     python run_all_experiments.py --dry-run     # list the schedule, claim nothing
     python run_all_experiments.py               # claim an idle GPU and run it
     python run_all_experiments.py --gpu 3       # pin a device, skipping the check
+    python run_all_experiments.py --schedule reproduce_schedule
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
 import multiprocessing as mp
 import sys
 import time
@@ -123,10 +125,12 @@ def main(argv=None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true",
                         help="list the schedule and exit without claiming a GPU")
+    parser.add_argument("--schedule", default="train_schedule",
+                        help="module providing create_schedule() (default: train_schedule)")
     gpu_utils.add_arguments(parser)
     args = parser.parse_args(argv)
 
-    from train_schedule import create_schedule
+    create_schedule = importlib.import_module(args.schedule).create_schedule
 
     tasks = list(create_schedule())
     validate(tasks)

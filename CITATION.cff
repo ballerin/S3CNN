@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "S3CNN: spin-weighted smoothing spherical CNNs"
+abstract: >-
+  SO(3)-equivariant convolutional networks on the sphere. One equivariant layer
+  expresses three architectures -- the sCNN of Cohen et al. (2018), the
+  spin-weighted swsCNN of Esteves et al. (2020, 2023), and the spin-weighted
+  smoothing S3CNN proposed here -- which differ only in where signal
+  equivariance is imposed.
+type: software
+authors:
+  - family-names: Ballerin
+    given-names: Francesco
+    affiliation: "University of Bergen, Department of Mathematics"
+    email: francesco.ballerin@uib.no
+  - family-names: Grong
+    given-names: Erlend
+    affiliation: "University of Bergen, Department of Mathematics"
+  - family-names: Blaser
+    given-names: Nello
+    affiliation: "University of Bergen, Department of Informatics"
+repository-code: "https://github.com/ballerin/S3CNN"
+license: MIT
+keywords:
+  - equivariant neural networks
+  - spherical CNN
+  - SO(3)
+  - spin-weighted spherical harmonics
+  - weather forecasting

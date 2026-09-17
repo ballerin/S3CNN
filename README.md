@@ -2,7 +2,7 @@
 
 Before running any script:
 
-* install the dependencies (also in `requirements.txt`)
+* install the dependencies: `pip install -e . --extra-index-url https://download.pytorch.org/whl/cu118` (versions are pinned in `pyproject.toml`; `requirements.txt` is the same list without pins)
 * run `generate_precomps.py` to precompute Wigner (small) d-matrices and test rotations
 * download the dataset (or part of) from [here](https://universityofbergen-my.sharepoint.com/:f:/g/personal/francesco_ballerin_uib_no1/Epd3GwgY0s5Hp9Pij9lAhxsBEoJDfrdwgzoVC58_ojGl8g?e=5UvH2h)
 
@@ -83,10 +83,11 @@ We have implemented the following models. `S3CNN*` models are the proposed
 followed by a smoothing operator that projects back to S2 every layer);
 `SwsCNN*` models are the **swsCNN** baseline (spin-weighted spherical CNN,
 spin-restricted filters, Esteves et al.); `CNN*` models are the classical
-Euclidean **CNN** baseline. A third architecture, **sCNN** (Cohen et al.,
-the full psi^l_{m,n} group filter with no projection), exists as
-`arch="scnn"` on the flat `SO3CNN` and is not yet wired into the model keys
-below -- it needs pooling on the group. See `modules/architectures.py`.
+Euclidean **CNN** baseline. A third architecture, **sCNN** (Cohen et al., the full psi^l_{m,n} group
+filter with no projection), runs on every topology as `arch="scnn"`; it pools
+by dropping whole orders of the SO(3) spectrum, where Cohen max-pools on the
+group grid. It has no `model_type` keys of its own yet, so it is reached by
+constructing a model directly. See `modules/architectures.py`.
 
 | key                          | Description                                 
 | --------------------- | --------------------------------------------------------- |
@@ -231,9 +232,26 @@ A test schedule job requires the corresponding training job to have been execute
 
 
 
+## One experiment end to end
+
+`reproduce.sh` runs the precompute, the training and the test for a single
+registry entry, claiming one idle GPU for the pair:
+
+```
+$ ./reproduce.sh wind->wind S3CNNUNet 1 paper
+$ EPOCHS=5 ./reproduce.sh MNIST-scalar-classification S3CNNMNIST
+```
+
+It writes a one-job schedule and passes it to `run_all_experiments.py
+--schedule`, so your own `train_schedule.py` is left alone.
+
 ## Plots
 
-To generate the plots use the files `plot_windwind.py`, `plot_tempwind.py`, and `plot_autoencoder.py`. The files have to be filled in with the ids from the logs that have been run.
+To generate the plots use the files in `plotting/`. The files have to be filled in with the ids from the logs that have been run.
+
+## Citing
+
+See `CITATION.cff`.
 
 ## Credits
 

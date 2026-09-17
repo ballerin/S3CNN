@@ -70,6 +70,17 @@ def test_the_claimed_device_reaches_the_job(tmp_path):
     assert trace.read_text().strip() == "GPU-test-uuid"
 
 
+def test_the_schedule_module_is_selectable(tmp_path, monkeypatch, capsys):
+    """`reproduce.sh` writes a one-experiment schedule and names it here, rather
+    than overwriting the user's own `train_schedule.py`."""
+    (tmp_path / "other_schedule.py").write_text(
+        "def create_schedule():\n"
+        "    return [{'operation': 'train', 'model_type': 'S3CNNUNet'}]\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert runner.main(["--dry-run", "--schedule", "other_schedule"]) == 0
+    assert "S3CNNUNet" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("op", [None, "trian", "", 0])
 def test_validate_rejects_an_unknown_operation(op):
     """A typo must be caught before a device is claimed, not after."""

@@ -9,6 +9,7 @@ path and reads like it ought to be ours.
 from __future__ import annotations
 
 import pytest
+import torch
 
 from modules.architectures import ARCHITECTURES, LEGACY_LAYER_STYLES, resolve
 from modules.equivariant import SO3Autoencoder, SO3CNN, SO3MNISTClassifier, SO3UNet
@@ -81,7 +82,7 @@ def test_the_default_nonlinearity_is_the_architectures_own(arch):
     assert model.nonlinearity_type == resolve(arch).sigma
 
 
-# ------------------------------------------------------------- what is missing
+# ------------------------------------------------------- pooling on the group
 
 @pytest.mark.parametrize("cls, kwargs", [
     (SO3UNet, dict(resolutions=[models.L, models.INNER, models.L],
@@ -91,8 +92,11 @@ def test_the_default_nonlinearity_is_the_architectures_own(arch):
     (SO3MNISTClassifier, dict(resolutions=[models.L, models.INNER, 0],
                               widths=[1, 2, 10], spins=[[0], [0, 1], [0]])),
 ])
-def test_the_pooling_architectures_say_so_instead_of_pretending(cls, kwargs):
-    """scnn pools on the group; these three truncate spectrally. Until SO(3)
-    pooling exists they refuse rather than quietly building something else."""
-    with pytest.raises(NotImplementedError, match="scnn"):
-        cls(arch="scnn", **kwargs, **models._common())
+def test_every_topology_pools_an_scnn_on_the_group(cls, kwargs):
+    """The signal stays on SO(3) between blocks, so pooling drops whole orders
+    rather than truncating a flat S2 spectrum."""
+    torch.manual_seed(models.SEED)
+    model = cls(arch="scnn", **kwargs, **models._common()).eval()
+    out = model(models.sample_input())
+    out = torch.view_as_real(out) if out.is_complex() else out
+    assert torch.isfinite(out).all()

@@ -1,34 +1,12 @@
+"""Spherical and SO(3) transforms.
+
+Encoding, grids, quadrature and table layout: see `CONVENTIONS.md`.
+Algorithm: Kostelec & Rockmore 2008, sec. 3.
+"""
+
 import numpy as np
 import torch
 from .SO3lib import from_index_to_beta
-
-"""
-The coefficient n is used to distinguish between two types of n-equivariant signals on SO(3):
- - n=0: scalar fields on S^2, 0-equivariant signals on SO(3)
- - n=1: vector fields on S^2, 1-equivariant signals on SO(3)
-
-Recall the computations for the indeces slices corresponding to order l:
-
-For n=0 (l=0,1,2,...), these should be 0:1 (1), 1:4 (3), 4:9 (5), 9:16 (7), ... which corresponds to
-l**2:(l+1)**2. This is due to the fact that we cover all odd numbers (2*l+1), and subsequent squares
-are separated by subsequent odd numbers.
-
-For n=1 (l=1,2,...), these should be 0:3 (3), 3:8 (5), 8:15 (7), 15:24 (9), ...which corresponds to
-(l-1)*(l+1):l*(l+2).
-(Recall that (l-1)*(l+1)= l**2-1 and l*(l+2)=(l+1)**2-1 so that the difference between the two is 1)
-HOWEVER, to simplify the code, we will use the same convention as for n=0, thus with one dummy zero
-coefficient at the beginning of the array encoding.
-
-Signals on S2, as well as n-equivariant maps on SO(3), are represented as tensors with length
-L*(L+2) for n=1 and L*(L+2)+1 for n=0.
-HOWEVER, to simplify the code, the lengths will be the same.
-
-Signals on SO(3) are encoded as lists of tensors, which at index l have shape [l+1,l+1].
-
-Whenever multiple feature types are present in the same sample (some features with n=0 and some
-other features with n=1) then all features use the n=0 convention to preserve homogeneous tensors.
-For n=1 the first coefficient will then be zero.
-"""
 
 class S2_to_SO3(torch.nn.modules.Module):
     """
@@ -189,21 +167,13 @@ class SO3_to_S2(torch.nn.modules.Module):
     
 
 class S2FFT(torch.nn.modules.Module):
-    r"""
-    This module performs an FFT on an SO(3) n-equivariant function, for either n=0 or n=1.
-    It exploits the fact that for A in SO(3), f(AZ(gamma)) = f(A)e^{-in gamma}.
-    Then it follows that the Fourier coefficients of f are given by
-    f^l_{mn} = <f, D^l_{mn}>
-             = int_{SO(3)} f(A) D^l_{mn}(A) d\mu(A)
-             = int_\alpha int_\beta int_\gamma f(Z(\alpha)Y(\beta)Z(\gamma)) d^l_{mn}(\beta)
-                                                    e^{in\gamma} e^{im\alpha} d\alpha d\beta d\gamma
-             = int_\beta \frac{\sin\beta}{2} d^l_{mn}(\beta) \frac{1}{2}
-                                        int_\alpha f(Z(\alpha)Y(\beta)) e^{im\alpha} d\alpha d\beta
-             = int_\beta \frac{\sin\beta}{2} d^l_{mn}(\beta) \tilde f^\alpha_{-m} d\beta
-    
-    where D^l_{mn} are the Wigner d-matrices, d^l_{mn} are the small Wigner d-matrices, Z and Y are
-    the Z and Y rotations, and \tilde f^\alpha_{-m} is the Fourier transform of f on the second
-    coordinate \beta, with reverse indexing for m.
+    """Analysis of an n-equivariant signal on SO(3), for n = 0 or n = 1.
+
+    `f(A Z(gamma)) = f(A) e^{-i n gamma}` collapses the gamma integral, leaving
+    an FFT over alpha and a sine-weighted quadrature against `d^l_{mn}` over
+    beta. Derivation: paper, appendix; conventions: `CONVENTIONS.md`.
+
+    [batch, channels, alpha, beta] -> [batch, channels, (L+1)^2]
     """
     def __init__(self, L, n:int|list) -> None:
         super(S2FFT, self).__init__()

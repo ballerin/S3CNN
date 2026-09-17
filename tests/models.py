@@ -56,9 +56,12 @@ BUILDERS = {
     "cnn_scnn": lambda: cnn("scnn"),
     "unet_swscnn": lambda: unet("swscnn"),
     "unet_s3cnn": lambda: unet("s3cnn"),
+    "unet_scnn": lambda: unet("scnn"),
     "autoencoder_swscnn": lambda: autoencoder("swscnn"),
+    "autoencoder_scnn": lambda: autoencoder("scnn"),
     "mnist_swscnn": lambda: mnist("swscnn"),
     "mnist_s3cnn": lambda: mnist("s3cnn"),
+    "mnist_scnn": lambda: mnist("scnn"),
 }
 
 # Models that map the sphere to itself; the rest are classifiers.

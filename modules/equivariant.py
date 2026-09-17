@@ -32,9 +32,32 @@ def n_coefficients(L: int) -> int:
     return (L + 1) ** 2
 
 
-def resize(x: torch.Tensor, L: int) -> torch.Tensor:
-    """Truncate or zero-pad a flat spectrum to band-limit L: spectral (un)pooling."""
-    return F.pad(x, (0, n_coefficients(L) - x.size(-1)))
+def resize(x, L: int):
+    """Truncate or zero-pad a spectrum to band-limit L: spectral (un)pooling.
+
+    On S2 the spectrum is one flat tensor, so this is a pad or a slice. On SO(3)
+    it is one `[B, C, 2l+1, 2l+1]` block per order, so pooling drops the blocks
+    above L and unpooling appends zero ones. Truncation is the pooling the whole
+    package uses; Cohen et al. 2018 instead max-pool on the group grid.
+    """
+    if not isinstance(x, list):
+        return F.pad(x, (0, n_coefficients(L) - x.size(-1)))
+    head = x[0]
+    return x[:L + 1] + [torch.zeros((*head.shape[:2], 2 * l + 1, 2 * l + 1),
+                                    dtype=head.dtype, device=head.device)
+                        for l in range(len(x), L + 1)]
+
+
+def concatenate(skip, x):
+    """Join a skip connection to a signal at its band-limit, along the channels."""
+    if isinstance(skip, list):
+        return [torch.cat([s, t], dim=1) for s, t in zip(skip, resize(x, len(skip) - 1))]
+    return torch.cat([skip, resize(x, n_orders(skip) - 1)], dim=1)
+
+
+def n_orders(x: torch.Tensor) -> int:
+    """Number of orders in a flat spectrum: L + 1."""
+    return int(round(x.size(-1) ** 0.5))
 
 
 class Block(nn.Module):
@@ -117,9 +140,6 @@ class EquivariantNetwork(nn.Module):
     follow `.to(device)` but stay out of the state_dict.
     """
 
-    #: Topologies that pool spectrally; scnn needs pooling on the group instead.
-    pools = True
-
     def __init__(self, n_alpha: int, n_beta: int, spins: list, l_max: int,
                  arch: str | None = None, layer_style: str | None = None,
                  fft_method: str = "full", nonlinearity: str | None = None,
@@ -134,10 +154,6 @@ class EquivariantNetwork(nn.Module):
             self.spec.sigma if nonlinearity is None else nonlinearity)
         self.use_batch_norm, self.use_layer_norm = use_batch_norm, use_layer_norm
 
-        if self.pools and self.spec.filters == "so3":
-            raise NotImplementedError(
-                f"{type(self).__name__} has no scnn path yet: pooling on the "
-                f"group is not implemented here. Use SO3CNN for scnn.")
         if fft_method != "full":
             raise ValueError(f"fft_method={fft_method!r}: only 'full' is implemented.")
         self.fft_method = fft_method
@@ -174,6 +190,10 @@ class EquivariantNetwork(nn.Module):
     def get_buffered_full_wigner(self):
         return self.get_buffer("wigner_full")
 
+    def lifted(self, i: int) -> bool:
+        """Does block `i` consume an SO(3) signal? Only scnn keeps one between blocks."""
+        return i > 0 and self.spec.filters == "so3"
+
     def slices(self) -> dict:
         return dict(d_matrices_n0=self.get_buffered_slice_wigner(0),
                     d_matrices_n1=self.get_buffered_slice_wigner(1))
@@ -209,8 +229,6 @@ class SO3CNN(EquivariantNetwork):
     `widths` has one entry per feature map, `spins` likewise; `resolution` is L.
     """
 
-    pools = False
-
     def __init__(self, n_alpha: int, n_beta: int, resolution: int, widths: list, spins: list,
                  **kwargs):
         if resolution is None:
@@ -225,7 +243,7 @@ class SO3CNN(EquivariantNetwork):
         n = len(widths) - 1
         self.layers = nn.ModuleList(
             Block(self, widths[i], widths[i + 1], self.spins[i + 1], resolution,
-                  lifted_input=i > 0 and self.spec.filters == "so3", conv_only=i == n - 1)
+                  lifted_input=self.lifted(i), conv_only=i == n - 1)
             for i in range(n))
         self._io(resolution, resolution)
 
@@ -255,11 +273,12 @@ class SO3UNet(EquivariantNetwork):
 
         n, half = len(resolutions), len(resolutions) // 2
         self.down = nn.ModuleList(
-            Block(self, widths[i], widths[i + 1], self.spins[i + 1], resolutions[i])
+            Block(self, widths[i], widths[i + 1], self.spins[i + 1], resolutions[i],
+                  lifted_input=self.lifted(i))
             for i in range(half + 1))
         self.up = nn.ModuleList(
             Block(self, widths[i] + widths[n - i], widths[i + 1], self.spins[i + 1], resolutions[i],
-                  conv_only=i == n - 1)
+                  lifted_input=self.lifted(i), conv_only=i == n - 1)
             for i in range(half + 1, n))
         self._io(resolutions[0], resolutions[-1])
 
@@ -272,8 +291,7 @@ class SO3UNet(EquivariantNetwork):
                 skips.append(x)
                 x = resize(x, self.resolutions[i + 1])
         for block, skip in zip(self.up, reversed(skips)):
-            x = F.pad(x, (0, skip.size(-1) - x.size(-1)))
-            x = block(torch.cat([skip, x], dim=1), self)
+            x = block(concatenate(skip, x), self)
         return self.decode(x)
 
 
@@ -292,7 +310,7 @@ class SO3Autoencoder(EquivariantNetwork):
         n = len(resolutions)
         self.layers = nn.ModuleList(
             Block(self, widths[i], widths[i + 1], self.spins[i + 1], resolutions[i],
-                  conv_only=i == n - 1)
+                  lifted_input=self.lifted(i), conv_only=i == n - 1)
             for i in range(n))
         self._io(resolutions[0], resolutions[-1])
 
@@ -317,7 +335,7 @@ class SO3MNISTClassifier(EquivariantNetwork):
 
         self.layers = nn.ModuleList(
             Block(self, widths[i], widths[i + 1], self.spins[i + 1], resolutions[i],
-                  L_out=resolutions[i + 1])
+                  L_out=resolutions[i + 1], lifted_input=self.lifted(i))
             for i in range(len(widths) - 1))
         self._io(resolutions[0], None)
         if head:
@@ -328,6 +346,10 @@ class SO3MNISTClassifier(EquivariantNetwork):
         x = self.encode(x)
         for block in self.layers:
             x = block(x, self)
+        # On the group the l = 0 block is the invariant subspace; on S2 it is the
+        # single remaining coefficient.
+        if isinstance(x, list):
+            x = x[0]
         if x.size(-1) != 1:
             raise ValueError(f"Final output should have only one order (L=0), got shape {tuple(x.shape)}")
         x = x.abs().reshape(batch, -1)

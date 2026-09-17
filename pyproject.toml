@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "s3cnn"
+version = "0.2.0"
+description = "Spin-weighted smoothing spherical CNNs, and the sCNN and swsCNN baselines, from one equivariant layer"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Francesco Ballerin", email = "francesco.ballerin@uib.no" },
+    { name = "Erlend Grong" },
+    { name = "Nello Blaser" },
+]
+
+# Pinned to what the measurements in docs/ and bench/baseline/ were taken with.
+# cu118 wheels come from the index below; see README for the install line.
+dependencies = [
+    "torch==2.3.0",
+    "numpy==1.26.4",
+    "scipy==1.13.1",
+    "tqdm",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "black", "pre-commit"]
+
+[tool.setuptools]
+packages = ["modules", "utils", "bench"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E501 is black's job; the maths code uses short names on purpose (E741: `l`).
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
