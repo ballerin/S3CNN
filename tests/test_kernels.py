@@ -51,6 +51,9 @@ def test_the_synthesis_kernel_matches_the_tensor_sum():
 
     packed = torch.cat([b.reshape(batch, chan, -1) for b in blocks], dim=-1)
     got = kernels.synthesise(packed, Packed.build(tables).packed, l_max, n_beta, n_grid)
+    # The kernel writes at the shifted position, which is where the transforms
+    # want the grid; doing it afterwards would be another copy of it.
+    want = torch.fft.fftshift(want, dim=(-3, -1))
     assert relerr(got.cpu().numpy(), want.cpu().numpy()) < 1e-5
 
 
@@ -71,7 +74,7 @@ def test_the_kernel_reads_the_table_at_its_own_stride():
 
     packed = torch.cat([b.reshape(1, 2, -1) for b in blocks], dim=-1)
     got = kernels.synthesise(packed, Packed.build(tables).packed, layer_l, n_beta, n_grid)
-    assert relerr(got.cpu().numpy(), want.cpu().numpy()) < 1e-5
+    assert relerr(got.cpu().numpy(), torch.fft.fftshift(want, dim=(-3, -1)).cpu().numpy()) < 1e-5
 
 
 @pytest.mark.parametrize("name", list(TOPOLOGIES))

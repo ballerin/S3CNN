@@ -21,6 +21,9 @@ from modules.equivariant import SO3CNN, SO3UNet
 N_ALPHA, N_BETA = 360, 179
 
 # Verbatim from run_training.py, plus a small one for smoke tests.
+# The L = 100 layers transform on 202 = 2 x 101 longitudes, and cuFFT has no fast
+# path for a prime factor that size; see the note in modules/zoo.py. It is kept
+# here because these configurations are the ones the models are trained with.
 CONFIGS = {
     "prod": {
         "unet_s3cnn": dict(cls=SO3UNet, arch="s3cnn", fft_method="full",

@@ -89,6 +89,15 @@ class Spec:
     share_d_matrices: bool = False
 
 
+#: A band-limit L is transformed on a grid of 2(L+1) longitudes, and cuFFT is
+#: fast only when that factors into small primes. **L = 100 gives 202 = 2 x 101**,
+#: and 101 is prime, so those layers fall back to cuFFT's prime-size path: it
+#: measured 73 ms of a 567 ms training step, about 60% of all the time spent in
+#: transforms, for two layers out of five. L = 99 (200 = 2^3 x 5^2) or L = 101
+#: (204 = 2^2 x 3 x 17) avoid it. The schedules below are left as they are
+#: because they are what the published results were trained at; a new experiment
+#: has no reason to pick 100.
+
 ZOO = {
 
     # wind->wind -- ERA5 wind field one week ahead. The main result.

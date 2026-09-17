@@ -18,6 +18,13 @@ registers, writing each output cell exactly once.
 
 The tables are real, so a complex multiply is two independent accumulations
 rather than four, and the imaginary part rides along at no extra table traffic.
+Complex values are read and written where they already are, interleaved as
+(re, im) pairs: splitting them into separate planes meant copying the whole
+gradient grid twice per slab, which cost more than the arithmetic.
+
+The grid the transforms want is `fftshift`ed, so the kernels write and read at
+the shifted position directly. Done afterwards it is a `roll`, i.e. another
+full copy of the grid.
 
 `grad` of the synthesis is a sum over latitudes at fixed order, which is the
 analysis contraction; the two kernels here are therefore each other's backward.
@@ -62,7 +69,7 @@ if HAVE_TRITON:
 
     @triton.autotune(configs=_tiles(), key=["n_total", "tab_total", "n_chan", "l_max", "n_beta"])
     @triton.jit
-    def _synthesis(x_re, x_im, table, out, n_total, tab_total, n_chan, l_max, n_beta, n_grid,
+    def _synthesis(x, table, out, n_total, tab_total, n_chan, l_max, n_beta, n_grid,
                    BLOCK_C: tl.constexpr, BLOCK_M: tl.constexpr,
                    BLOCK_B: tl.constexpr, BLOCK_N: tl.constexpr):
         """One tile of `grid[channel, m, beta, n]`, summed over orders in registers.
@@ -111,26 +118,29 @@ if HAVE_TRITON:
 
             d = tl.load(table + beta[:, None, None] * tab_total + off[None, :, :],
                         mask=b_ok[:, None, None] & keep[None, :, :], other=0.0)
-            xr = tl.load(x_re + c[:, None, None] * n_total + off[None, :, :],
-                         mask=c_ok[:, None, None] & keep[None, :, :], other=0.0)
-            xi = tl.load(x_im + c[:, None, None] * n_total + off[None, :, :],
-                         mask=c_ok[:, None, None] & keep[None, :, :], other=0.0)
+            at = 2 * (c[:, None, None] * n_total + off[None, :, :])
+            take = c_ok[:, None, None] & keep[None, :, :]
+            xr = tl.load(x + at, mask=take, other=0.0)
+            xi = tl.load(x + at + 1, mask=take, other=0.0)
             acc_re += xr[:, None, :, :] * d[None, :, :, :]
             acc_im += xi[:, None, :, :] * d[None, :, :, :]
 
-        # The grid has one more row and column than the orders fill; the caller
-        # zeroes those, so the window starts at 1.
+        # The orders fill every row and column but one, which the caller zeroes.
+        # Writing at the fftshifted position saves rolling the grid afterwards.
+        half = n_grid // 2
+        m_at = (m + 1 + half) % n_grid
+        n_at = (n + 1 + half) % n_grid
         idx = (c[:, None, None, None] * n_grid * n_beta * n_grid
-               + (m[None, None, :, None] + 1) * n_beta * n_grid
+               + m_at[None, None, :, None] * n_beta * n_grid
                + beta[None, :, None, None] * n_grid
-               + (n[None, None, None, :] + 1))
+               + n_at[None, None, None, :])
         store = (c_ok[:, None, None, None] & b_ok[None, :, None, None]
                  & m_ok[None, None, :, None] & n_ok[None, None, None, :])
         tl.store(out + 2 * idx, acc_re, mask=store)
         tl.store(out + 2 * idx + 1, acc_im, mask=store)
 
     @triton.jit
-    def _analysis(g_re, g_im, table, out_re, out_im, n_total, tab_total, l_max, n_beta, n_grid,
+    def _analysis(g, table, out, n_total, tab_total, l_max, n_beta, n_grid,
                   BLOCK: tl.constexpr):
         """One tile of packed coefficients, summed over latitudes."""
         bc = tl.program_id(0)
@@ -146,21 +156,24 @@ if HAVE_TRITON:
         row = inner // size
         col = inner % size
 
-        m = row + (l_max - l) + 1                       # into the padded grid
-        n = col + (l_max - l) + 1
+        half = n_grid // 2                              # into the shifted grid
+        m = (row + (l_max - l) + 1 + half) % n_grid
+        n = (col + (l_max - l) + 1 + half) % n_grid
 
         acc_re = tl.zeros((BLOCK,), dtype=tl.float32)
         acc_im = tl.zeros((BLOCK,), dtype=tl.float32)
         for b in range(0, n_beta):
             d = tl.load(table + b * tab_total + offs, mask=live, other=0.0)
-            idx = bc * n_grid * n_beta * n_grid + m * n_beta * n_grid + b * n_grid + n
-            gr = tl.load(g_re + idx, mask=live, other=0.0)
-            gi = tl.load(g_im + idx, mask=live, other=0.0)
+            idx = 2 * (bc * n_grid * n_beta * n_grid + m * n_beta * n_grid
+                       + b * n_grid + n)
+            gr = tl.load(g + idx, mask=live, other=0.0)
+            gi = tl.load(g + idx + 1, mask=live, other=0.0)
             acc_re += gr * d
             acc_im += gi * d
 
-        tl.store(out_re + bc * n_total + offs, acc_re, mask=live)
-        tl.store(out_im + bc * n_total + offs, acc_im, mask=live)
+        at = 2 * (bc * n_total + offs)
+        tl.store(out + at, acc_re, mask=live)
+        tl.store(out + at + 1, acc_im, mask=live)
 
 
 class Synthesis(torch.autograd.Function):
@@ -170,18 +183,22 @@ class Synthesis(torch.autograd.Function):
     def forward(ctx, packed, table, l_max: int, n_beta: int, n_grid: int):
         bc = packed.shape[0] * packed.shape[1]
         n_total = packed.shape[-1]
-        x = packed.reshape(bc, n_total)
-        out = torch.zeros((bc, n_grid, n_beta, n_grid),
+        x = packed.reshape(bc, n_total).contiguous()
+        out = torch.empty((bc, n_grid, n_beta, n_grid),
                           dtype=torch.complex64, device=packed.device)
+        # Every cell is written except one row and one column, which no order
+        # reaches; after the shift they sit in the middle.
+        half = n_grid // 2
+        out[:, half] = 0
+        out[:, :, :, half] = 0
         def grid(meta):
             return (triton.cdiv(bc, meta["BLOCK_C"]),
                     triton.cdiv(2 * l_max + 1, meta["BLOCK_M"]),
                     triton.cdiv(n_beta, meta["BLOCK_B"])
                     * triton.cdiv(2 * l_max + 1, meta["BLOCK_N"]))
 
-        _synthesis[grid](x.real.contiguous(), x.imag.contiguous(), table,
-                         torch.view_as_real(out), n_total, table.shape[-1], bc,
-                         l_max, n_beta, n_grid)
+        _synthesis[grid](torch.view_as_real(x), table, torch.view_as_real(out),
+                         n_total, table.shape[-1], bc, l_max, n_beta, n_grid)
         ctx.save_for_backward(table)
         ctx.sizes = (packed.shape, l_max, n_beta, n_grid)
         return out.reshape(*packed.shape[:2], n_grid, n_beta, n_grid)
@@ -192,15 +209,18 @@ class Synthesis(torch.autograd.Function):
         shape, l_max, n_beta, n_grid = ctx.sizes
         bc, n_total = shape[0] * shape[1], shape[-1]
         grad = grad.reshape(bc, n_grid, n_beta, n_grid).contiguous()
-        out_re = torch.empty((bc, n_total), device=grad.device)
-        out_im = torch.empty_like(out_re)
+        out = torch.empty((bc, n_total), dtype=torch.complex64, device=grad.device)
         grid = (bc, triton.cdiv(n_total, 256))
-        _analysis[grid](grad.real.contiguous(), grad.imag.contiguous(), table,
-                        out_re, out_im, n_total, table.shape[-1], l_max, n_beta, n_grid,
+        _analysis[grid](torch.view_as_real(grad), table, torch.view_as_real(out),
+                        n_total, table.shape[-1], l_max, n_beta, n_grid,
                         BLOCK=256, num_warps=4)
-        return torch.complex(out_re, out_im).reshape(shape), None, None, None, None
+        return out.reshape(shape), None, None, None, None
 
 
 def synthesise(packed, table, l_max: int, n_beta: int, n_grid: int):
-    """`[batch, channels, packed]` -> `[batch, channels, n_grid, n_beta, n_grid]`."""
+    """`[batch, channels, packed]` -> `[batch, channels, n_grid, n_beta, n_grid]`.
+
+    The result is already `fftshift`ed on the two grid axes, ready for the
+    transforms over alpha and gamma.
+    """
     return Synthesis.apply(packed, table, l_max, n_beta, n_grid)

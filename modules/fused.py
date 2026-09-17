@@ -132,11 +132,12 @@ def _synthesise(source, tables, betas: slice, n_alpha: int, n_gamma: int, l_max=
     `Orders` through the tensor path.
     """
     if isinstance(source, Orders):
-        out = _accumulate(source, tables, betas, n_alpha, n_gamma)
+        out = torch.fft.fftshift(_accumulate(source, tables, betas, n_alpha, n_gamma),
+                                 dim=(-3, -1))
     else:
+        # The kernel writes at the shifted position, so there is nothing to roll.
         out = kernels.synthesise(source, tables.packed[betas], l_max,
                                  betas.stop - betas.start, n_alpha)
-    out = torch.fft.fftshift(out, dim=(-3, -1))
     out = torch.fft.fft(out, dim=-3, norm="ortho")
     return torch.fft.fft(out, dim=-1)
 
