@@ -2,8 +2,6 @@
  "suite": "models",
  "device": "NVIDIA A100-SXM4-80GB",
  "gpu_uuid": "GPU-4561992f-3f07-1cfe-9625-8de0e4480791",
- "co_tenants": 1,
- "co_tenants_end": 1,
  "bandwidth_gb_s": 1622.4663662420244,
  "torch": "2.3.0+cu118",
  "host": "birget.uib.no",
@@ -104,5 +102,7 @@
    "peak_mem": 1572054016,
    "traffic": 0
   }
- ]
+ ],
+ "other_jobs": 1,
+ "other_jobs_end": 1
 }

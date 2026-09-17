@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import precomp
+from . import fused, precomp
 from .SO3fft import S2FFT, S2iFFT, SO3FFT, SO3iFFT, SO3_to_S2
 from .SO3lib import normalise_spins
 from .architectures import resolve
@@ -74,6 +74,7 @@ class Block(nn.Module):
         super().__init__()
         spec = net.spec
         self.lifts, self.projects, self.conv_only = spec.lifts, spec.projects, conv_only
+        self.fuse = net.fuse
 
         if spec.filters == "degree":
             self.conv = SpinSO3Conv(nfeature_in=f_in, nfeature_out=f_out, L=L)
@@ -115,13 +116,23 @@ class Block(nn.Module):
                          else S2FFT(L=L_out, n=spins))
 
     def forward(self, x, net: "EquivariantNetwork"):
-        x = self.conv(x)
         if self.conv_only:
-            return x
+            return self.conv(x)
+
+        normed = self.batchnorm is not None or self.layernorm is not None
+        if self.lifts and self.fuse and not normed:
+            # Nothing between the convolution and the synthesis, so the orders
+            # can be convolved as the synthesis asks for them and the lifted
+            # signal never accumulates.
+            return self._fused(fused.Orders(self.conv, x), net)
+
+        x = self.conv(x)
         if self.batchnorm is not None:
             x = self.batchnorm(x)
         if self.layernorm is not None:
             x = self.layernorm(x)
+        if self.lifts and self.fuse:
+            return self._fused(fused.Orders(x), net)
         x = (self.synthesis(x, d_matrices=net.get_buffered_full_wigner()) if self.lifts
              else self.synthesis(x, **net.slices()))
         x = self.dropout(self.sigma(x))
@@ -130,6 +141,17 @@ class Block(nn.Module):
         if isinstance(self.analysis, SO3FFT):
             return self.analysis(x, d_matrices=net.get_buffered_full_wigner())
         return self.analysis(x, **net.slices())
+
+    def _fused(self, orders, net: "EquivariantNetwork"):
+        """The same chain, one slab of latitudes at a time; see `modules/fused.py`."""
+        tables = net.get_buffered_full_wigner()
+        synth = self.synthesis
+        if self.projects:
+            grid = fused.project(orders, tables, self.sigma, self.dropout, self.smoothing,
+                                 synth.n_alpha, synth.n_beta, synth.n_gamma)
+            return self.analysis(grid, **net.slices())
+        return fused.regroup(orders, tables, self.analysis.quadrature, self.sigma, self.dropout,
+                             self.analysis.L, synth.n_alpha, synth.n_beta, synth.n_gamma)
 
 
 class EquivariantNetwork(nn.Module):
@@ -144,10 +166,14 @@ class EquivariantNetwork(nn.Module):
                  arch: str | None = None, layer_style: str | None = None,
                  fft_method: str = "full", nonlinearity: str | None = None,
                  use_batch_norm: bool = True, use_layer_norm: bool = False,
+                 fuse: bool = True,
                  wigner_n0: list | None = None, wigner_n1: list | None = None,
                  f_wigner: list | None = None):
         super().__init__()
         self.n_alpha, self.n_beta = n_alpha, n_beta
+        #: Run the SO(3) chain slab by slab. Off restores the plain tensor path,
+        #: which is what the fused one is checked against.
+        self.fuse = fuse
         self.spec = resolve(arch, layer_style)
         self.arch = self.spec.name
         self.nonlinearity_type = self.spec.check_sigma(

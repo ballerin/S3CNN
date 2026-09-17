@@ -1,9 +1,9 @@
 """Timing, memory and reporting for the benchmark suites.
 
 Every measurement is taken on one GPU claimed by `utils.gpu_utils` before
-torch initialises CUDA. That claim is advisory, so the number of foreign
-processes is recorded at the start and again at the end: if it changed,
-someone else was on the device and the run has to be thrown away.
+torch initialises CUDA. That claim is advisory, so the number of processes
+from other users is recorded at the start and again at the end: if it changed,
+someone else was running on the device and the run has to be thrown away.
 
 Times come from CUDA events around a synchronised loop; memory from
 `torch.cuda.max_memory_allocated`, which counts the caching allocator's peak
@@ -48,8 +48,8 @@ class Run:
     suite: str
     device: str
     gpu_uuid: str
-    co_tenants: int  # foreign processes on the device when the run started
-    co_tenants_end: int  # ... and when it finished; a change invalidates the run
+    other_jobs: int  # processes from other users on the device when the run started
+    other_jobs_end: int  # ... and when it finished; a change invalidates the run
     bandwidth_gb_s: float
     torch: str = torch.__version__
     host: str = field(default_factory=platform.node)

@@ -46,25 +46,26 @@ def main(argv=None):
     from bench import data, harness, models, ops
     suite = {"ops": ops, "models": models, "data": data}[args.suite]
 
-    def co_tenants():
+    def other_jobs():
+        """How many processes from other users are on this device right now."""
         return next(s for s in gpu_utils.survey(1, 0) if s.uuid == gpu.uuid).others
 
     run = harness.Run(suite=args.suite, device=torch.cuda.get_device_name(0),
-                      gpu_uuid=gpu.uuid, co_tenants=co_tenants(), co_tenants_end=0,
+                      gpu_uuid=gpu.uuid, other_jobs=other_jobs(), other_jobs_end=0,
                       bandwidth_gb_s=harness.measure_bandwidth(torch.device("cuda")))
     run.results = list(suite.cases(args.size, args.batch, args.iters, args.only))
-    run.co_tenants_end = co_tenants()
+    run.other_jobs_end = other_jobs()
 
     baseline = harness.load(args.baseline) if args.baseline else None
     print(f"{run.device} {run.gpu_uuid} | {run.bandwidth_gb_s:.0f} GiB/s "
-          f"| {run.co_tenants} other process(es) | tf32 {'on' if tf32 else 'off'}\n")
+          f"| {run.other_jobs} other process(es) | tf32 {'on' if tf32 else 'off'}\n")
     print(harness.to_markdown(run, baseline))
 
     # The lock is advisory; another user can still land on the device mid-run.
-    contended = run.co_tenants_end != run.co_tenants
+    contended = run.other_jobs_end != run.other_jobs
     if contended:
-        print(f"\nVOID: co-tenants went {run.co_tenants} -> {run.co_tenants_end} "
-              f"during the run. Re-measure.")
+        print(f"\nVOID: other users' processes on this GPU went "
+              f"{run.other_jobs} -> {run.other_jobs_end} during the run. Re-measure.")
 
     if args.out and not contended:
         run.to_json(args.out)

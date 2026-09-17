@@ -57,16 +57,15 @@ class SO3Conv(nn.modules.Module):
         if x.size(2) != self.L*(self.L+2)+1:
             raise Exception(f"Input has spectral shape {x.size(2)} but expected {self.L*(self.L+2)+1} with L={self.L}")
 
-        y = []
+        # One order at a time, so a caller that consumes them as they come
+        # never holds the whole lifted signal. See `modules/fused.py`.
+        return [self.block(l, x) for l in range(0, self.L+1)]
 
-        # For each order l compute the convolution with the kernel
-        for l in range(0, self.L+1):
-            y_l = torch.einsum("ion,...im->...omn", 
-                                self.kernel[...,(l-1)*(l+1)+1:l*(l+2)+1],
-                                x[...,(l-1)*(l+1)+1:l*(l+2)+1])
-            y.append(y_l)
-
-        return y
+    def block(self, l: int, x):
+        """Order `l` of the output: [batch, nfeature_out, 2l+1, 2l+1]."""
+        return torch.einsum("ion,...im->...omn",
+                            self.kernel[...,(l-1)*(l+1)+1:l*(l+2)+1],
+                            x[...,(l-1)*(l+1)+1:l*(l+2)+1])
 
 class SO3toSO3Conv(nn.modules.Module):
     """
@@ -111,7 +110,11 @@ class SO3toSO3Conv(nn.modules.Module):
         if len(x) != self.L + 1:
             raise Exception(f"Input has {len(x)} orders but expected {self.L + 1} with L={self.L}")
 
-        return [torch.einsum("iokp,...imk->...omp", self.kernel[l], x[l]) for l in range(0, self.L + 1)]
+        return [self.block(l, x) for l in range(0, self.L + 1)]
+
+    def block(self, l: int, x):
+        """Order `l` of the output: [batch, nfeature_out, 2l+1, 2l+1]."""
+        return torch.einsum("iokp,...imk->...omp", self.kernel[l], x[l])
 
 
 class SpinSO3Conv(nn.modules.Module):
