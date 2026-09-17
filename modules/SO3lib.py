@@ -3,9 +3,6 @@ import torch.nn.functional as F
 import numpy as np
 import scipy
 import math
-import matplotlib.pyplot as plt
-from matplotlib import cm
-
 from scipy.ndimage import map_coordinates
 
 def from_index_to_beta(index, n_beta=179):
@@ -127,73 +124,6 @@ def random_euler_zyz(radians=True):
         return np.degrees(alpha), np.degrees(beta), np.degrees(gamma)
 
 vec_beta_exponent = np.vectorize(beta_exponent, signature="(),(a,b)->(a,b)")
-
-def x_rot(theta):
-    """
-    Return the rotation matrix for the angle theta around the axis X
-    """
-    R = np.eye(3)
-    R[1, 1] = R[2, 2] = np.cos(theta)
-    R[1, 2] = -np.sin(theta)
-    R[2, 1] = np.sin(theta)
-
-def y_rot(theta):
-    """
-    Return the rotation matrix for the angle theta around the axis Y
-    """
-    R = np.eye(3)
-    R[0, 0] = R[2, 2] = np.cos(theta)
-    R[2, 0] = -np.sin(theta)
-    R[0, 2] = np.sin(theta)
-
-def z_rot(theta):
-    """
-    Return the rotation matrix for the angle theta around the axis Z
-    """
-    R = np.eye(3)
-    R[0, 0] = R[1, 1] = np.cos(theta)
-    R[0, 1] = -np.sin(theta)
-    R[1, 0] = np.sin(theta)
-
-def generate_random_z_axis_rotation():
-    """
-    Generate random rotation matrix about the z axis.
-    """
-
-    R = np.eye(3)
-    x1 = np.random.rand()
-    R[0, 0] = R[1, 1] = np.cos(2 * np.pi * x1)
-    R[0, 1] = -np.sin(2 * np.pi * x1)
-    R[1, 0] = np.sin(2 * np.pi * x1)
-
-    return R
-
-def generate_random_3d_rotation():
-    """
-    Function to generate a random element in SO3
-
-    Algorithm taken from "Fast Random Rotation Matrices" (James Avro, 1992):
-    https://doi.org/10.1016/B978-0-08-050755-2.50034-8
-    """
-        
-    # There are two random variables in [0, 1) here (naming is same as paper)
-    x2 = 2 * np.pi * np.random.rand()
-    x3 = np.random.rand()
-
-    # Rotation of all points around x axis using matrix
-    R = generate_random_z_axis_rotation()
-    v = np.array([
-        np.cos(x2) * np.sqrt(x3),
-        np.sin(x2) * np.sqrt(x3),
-        np.sqrt(1 - x3)
-    ])
-
-    H = np.eye(3) - (2 * np.outer(v, v))
-    M = -(H @ R)
-    x = x.reshape((-1, 3))
-    mean_coord = np.mean(x, axis=0)
-
-    return ((x - mean_coord) @ M) + mean_coord @ M
 
 #############################
 ### Sphere grid functions ###
@@ -431,10 +361,14 @@ def stitch_mnist_to_sphere_spherical(image, n_alpha=360, n_beta=179, projection_
 ### Sphere plotting related functions ###
 #########################################
 
-def plot_scalar_field(x, ax, facecolors=cm.jet):
+def plot_scalar_field(x, ax, facecolors=None):
     """
     Plot a scalar field on the sphere surface.
     """
+    from matplotlib import cm  # deferred: training jobs are headless
+
+    facecolors = cm.jet if facecolors is None else facecolors
+
     # convert to numpy safely
     if isinstance(x, torch.Tensor):
         x = x.detach().cpu().numpy()
@@ -493,6 +427,8 @@ def plot_vector_field(z, ax, scale=0.1, color="k", density=5):
 
 
 def plot_vector_field_magnitude(x, ax):
+    from matplotlib import cm  # deferred: training jobs are headless
+
     #Compute the magnitude
     x = np.array(x)
     heatmap = np.abs(x)
@@ -571,6 +507,21 @@ def process_n(n):
             return n[0]
         else:
             return n
+
+def normalise_spins(spins):
+    """Accept `0`, `[0]` or `[0,1]` per layer and always return lists.
+
+    The model constructors document the bare-int form and validate it, then
+    test membership with `0 in entry`, so anything but a list used to raise.
+    """
+    out = []
+    for entry in spins:
+        entry = [entry] if isinstance(entry, int) else list(entry)
+        for n in entry:
+            if n not in (0, 1):
+                raise ValueError(f"Spins must be 0 or 1, got {n}")
+        out.append(entry)
+    return out
 
 def compute_spins(n):
     if isinstance(n, int):

@@ -189,17 +189,17 @@ class SO3_to_S2(torch.nn.modules.Module):
     
 
 class S2FFT(torch.nn.modules.Module):
-    """
+    r"""
     This module performs an FFT on an SO(3) n-equivariant function, for either n=0 or n=1.
-    It exploits the fact that for A \in SO(3), f(AZ(\gamma)) = f(A)e^{-in\gamma}.
+    It exploits the fact that for A in SO(3), f(AZ(gamma)) = f(A)e^{-in gamma}.
     Then it follows that the Fourier coefficients of f are given by
     f^l_{mn} = <f, D^l_{mn}>
-             = \int_{SO(3)} f(A) D^l_{mn}(A) d\mu(A)
-             = \int_\alpha \int_\beta \int_\gamma f(Z(\alpha)Y(\beta)Z(\gamma)) d^l_{mn}(\beta)
+             = int_{SO(3)} f(A) D^l_{mn}(A) d\mu(A)
+             = int_\alpha int_\beta int_\gamma f(Z(\alpha)Y(\beta)Z(\gamma)) d^l_{mn}(\beta)
                                                     e^{in\gamma} e^{im\alpha} d\alpha d\beta d\gamma
-             = \int_\beta \frac{\sin\beta}{2} d^l_{mn}(\beta) \frac{1}{2}
-                                        \int_\alpha f(Z(\alpha)Y(\beta)) e^{im\alpha} d\alpha d\beta
-             = \int_\beta \frac{\sin\beta}{2} d^l_{mn}(\beta) \tilde f^\alpha_{-m} d\beta
+             = int_\beta \frac{\sin\beta}{2} d^l_{mn}(\beta) \frac{1}{2}
+                                        int_\alpha f(Z(\alpha)Y(\beta)) e^{im\alpha} d\alpha d\beta
+             = int_\beta \frac{\sin\beta}{2} d^l_{mn}(\beta) \tilde f^\alpha_{-m} d\beta
     
     where D^l_{mn} are the Wigner d-matrices, d^l_{mn} are the small Wigner d-matrices, Z and Y are
     the Z and Y rotations, and \tilde f^\alpha_{-m} is the Fourier transform of f on the second
@@ -466,13 +466,16 @@ class SO3FFT(torch.nn.modules.Module):
         maf_a = (n_alpha-1)//2 #Middle After Flipping for Alpha
         maf_g = (n_gamma-1)//2 #Middle After Flipping for Gamma
         
-        x = torch.fft.fft2(x, dim=(-3,-1), norm="ortho") # [batch, feature_in, m, beta, n, complex]
+        # Inverse of the SO3iFFT convention: ortho over alpha, 1/n_gamma over gamma.
+        x = torch.fft.fft(x, dim=-3, norm="ortho") # [batch, feature_in, m, beta, n]
+        x = torch.fft.fft(x, dim=-1, norm="forward")
         x = torch.fft.fftshift(x, dim=(-3,-1))
         x = torch.flip(x, dims=(-3,-1)) # We need -m and -n as indeces
         
         x_hat = []
         
-        angle = from_index_to_beta(torch.arange(0,n_beta,device=x.device)).to(torch.complex64)
+        angle = from_index_to_beta(torch.arange(0,n_beta,device=x.device),
+                                   n_beta=n_beta).to(torch.complex64)
         aa = torch.sin(angle).to(torch.complex64)
         
         for l in range(0,self.L+1):
@@ -569,7 +572,10 @@ class SO3iFFT(torch.nn.modules.Module):
             x[..., mid_a-l:mid_a+l+1, :, mid_g-l:mid_g+l+1] += torch.einsum("xfmn,bmn->xfmbn",xx,ww) 
 
         x = torch.fft.fftshift(x, dim=(-3,-1))
-        x = torch.fft.fft2(x, dim=(-3,-1), norm="ortho")
+        # alpha uses the same convention as S2iFFT; gamma is left unnormalised so
+        # that SpatialSmoothing's 1/n_gamma average returns the coefficient itself.
+        x = torch.fft.fft(x, dim=-3, norm="ortho")
+        x = torch.fft.fft(x, dim=-1)
 
         return x
 

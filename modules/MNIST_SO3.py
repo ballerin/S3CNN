@@ -3,13 +3,14 @@ sys.path.append("../")
 
 import torch
 import torch.nn as nn
-import pickle
 
 from .SO3fft import S2_to_SO3, SO3_to_S2
 from .SO3fft import S2FFT
 from .SO3fft import S2iFFT
 from .SO3fft import SO3FFT, SO3iFFT
 
+from . import precomp
+from .SO3lib import normalise_spins
 from .SO3ConvLayer import SO3Conv, SpinSO3Conv
 
 from .SpectralModules import ComplexDropout, MagnitudeNonlinearity, PhaseCollapseNonlinearity, WeightedLeakyReLU, \
@@ -80,25 +81,13 @@ class SO3MNISTClassifier(nn.Module):
         self.use_layer_norm = use_layer_norm
         self.nonlinearity_type = nonlinearity
 
-        if isinstance(self.spins[-1],list):
-            if len(self.spins[-1]) != 1:
-                raise ValueError("Last spin must be a single value. Got {}".format(self.spins[-1]))
-            else:
-                if self.spins[-1][0] == 0:
-                    self.output = "scalar"
-                elif self.spins[-1][0] == 1:
-                    self.output = "vector"
-                else:
-                    raise ValueError("Last spin must be 0 or 1, not {}".format(self.spins[-1][0]))
-        elif isinstance(self.spins[-1],int):
-            if self.spins[-1] == 0:
-                self.output = "scalar"
-            elif self.spins[-1] == 1:
-                self.output = "vector"
-            else:
-                raise ValueError("Last spin must be 0 or 1, not {}".format(self.spins[-1]))
-        else:
-            raise ValueError("Last spin must be a list or an int, not {}".format(self.spins[-1]))
+        # `spins` accepts 0, [0] or [0,1] per layer; normalise so the rest of the
+        # constructor can assume lists.
+        self.spins = normalise_spins(self.spins)
+
+        if len(self.spins[-1]) != 1:
+            raise ValueError("Last spin must be a single value, got {}".format(self.spins[-1]))
+        self.output = "scalar" if self.spins[-1][0] == 0 else "vector"
         
         ### Load the precomputed coefficients, if these have not been passed as an argument ###
 
@@ -110,8 +99,7 @@ class SO3MNISTClassifier(nn.Module):
             if wigner_n0 == None:
                 # If no Wigner d-matrices are provided, load them from the precomputed file
                 self.wigner_n0 = \
-                    [m.requires_grad_(False) for m in pickle.load(
-                        open("precomp/SLICE_WIGNER_N0_"+str(n_beta)+".list","rb"))]
+                    precomp.load("SLICE_WIGNER_N0", n_beta, max(self.resolutions))
             else:
                 # If Wigner d-matrices are provided, make sure they are on the DEVICE
                 self.wigner_n0 = [m.requires_grad_(False) for m in wigner_n0]
@@ -128,8 +116,7 @@ class SO3MNISTClassifier(nn.Module):
             if wigner_n1 == None:
                 # If no Wigner d-matrices are provided, load them from the precomputed file
                 self.wigner_n1 =\
-                    [m.requires_grad_(False) for m in pickle.load(
-                        open("precomp/SLICE_WIGNER_N1_"+str(n_beta)+".list","rb"))]
+                    precomp.load("SLICE_WIGNER_N1", n_beta, max(self.resolutions))
             else:
                 # If Wigner d-matrices are provided, make sure they are on the DEVICE
                 self.wigner_n1 = [m.requires_grad_(False) for m in wigner_n1]
@@ -148,8 +135,7 @@ class SO3MNISTClassifier(nn.Module):
             elif self.fft_method == "full":
                 if f_wigner == None:
                     # If no Wigner d-matrices are provided, load them from the precomputed file
-                    self.f_wigner = [m.requires_grad_(False) for m in pickle.load(
-                        open("precomp/FULL_WIGNER_"+str(n_beta)+".list","rb"))]
+                    self.f_wigner = precomp.load("FULL_WIGNER", n_beta, max(self.resolutions))
                 else:
                     # If Wigner d-matrices are provided, make sure they are on the DEVICE
                     self.f_wigner = [m.requires_grad_(False) for m in f_wigner]
@@ -221,7 +207,7 @@ class SO3MNISTClassifier(nn.Module):
                                                 n = self.layers[i]['out_spins'], dimensions=3))
                 if self.use_layer_norm:
                     self.layernorm.append(
-                    FullSpectralLayerNormalization(nfeatures = self.layers[i]['f_out']))
+                    FullSpectralLayerNormalization(n = self.layers[i]['out_spins'], nfeatures = self.layers[i]['f_out']))
             elif self.layer_style == "spins":
                 if self.nonlinearity_type == "magnitude":
                     self.nonlinearities.append(MagnitudeNonlinearity(n=self.layers[i]['out_spins']))

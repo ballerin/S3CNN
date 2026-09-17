@@ -25,3 +25,7 @@ train_schedule.py
 local_files/
 legacy_modules/
 
+# Notes and plans written alongside the code, not part of it
+docs/
+.claude/
+CLAUDE.md

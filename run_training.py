@@ -1,14 +1,13 @@
-from math import exp
 import os
 import pickle
 import time
 
-from sympy import use
 import torch
 
 from training_utils import plot_data
 
 from SphericalDataset import WeatherDataset, SphericalMNISTDataset
+from utils.data_utils import make_dataloader
 
 from modules.CNNUNet import CNNUNet
 from modules.CNNAutoencoder import CNNAutoencoder512
@@ -57,6 +56,7 @@ def run_training(gpu_id: int, # gpu id to use
                  rotate: str = "no",
                  log_id: str = None,
                  preload_dataset:bool = True,
+                 gradient_accumulation: int = 1,
                  verbose: bool = False,
                  ):
     """
@@ -80,6 +80,7 @@ def run_training(gpu_id: int, # gpu id to use
     - rotate: str, rotation method to use (e.g., "no", "random", "beta", "full")
     - log_id: str, unique identifier for this run of this experiment (for logging purposes)
     - preload_dataset: bool, whether to preload the whole dataset into RAM memory
+    - gradient_accumulation: int, optimiser steps are taken every this many batches
     - verbose: bool, whether to print detailed logs during training
 
     Experiments:
@@ -116,60 +117,35 @@ def run_training(gpu_id: int, # gpu id to use
     ALLOWED_NONLINEARITIES = [None, "magnitude", "phase_collapse", "relu", "leaky_relu"]
 
     if params is not None:
+        # Required: a schedule entry without one of these is a typo, not a default.
         experiment = params['experiment']
         model_type = params['model_type']
         total_epochs = params['total_epochs']
         batch_size = params['batch_size']
         rotate = params['rotate']
 
-        if 'fft_method' not in params.keys():
-            fft_method = 'full'
-        if 'early_stopping' not in params.keys():
-            early_stopping = total_epochs
-        else:
-            early_stopping = params['early_stopping']
-        if 'starting_epoch' not in params.keys():
-            starting_epoch = 0
-        elif 'starting_epoch' in params.keys():
-            starting_epoch = params['starting_epoch']
-        if 'save_every' not in params.keys():
-            save_every = -1 #Do not save by default
-        else:
-            save_every = params['save_every']
-        if 'pretrained_weights' not in params.keys():
-            pretrained_weights = None
-        else:
-            pretrained_weights = params['pretrained_weights']
-        if 'nonlinearity' not in params.keys():
-            if model_type in ["SO3UNet", "SO3autoencoder", "SO3CNN", "SO3MNIST"]:
-                nonlinearity = "leaky_relu"
-            elif model_type in ["SpinsSO3UNet", "SpinsSO3autoencoder", "SpinsSO3CNN", "SpinsSO3MNIST"]:
-                nonlinearity = 'magnitude'
-            else:
-                #CNNs
-                nonlinearity = None
-        else:
+        fft_method = params.get('fft_method', 'full')
+        early_stopping = params.get('early_stopping', total_epochs)
+        starting_epoch = params.get('starting_epoch', 0)
+        save_every = params.get('save_every', -1)  # Do not save by default
+        pretrained_weights = params.get('pretrained_weights', None)
+        use_batch_norm = params.get('use_batch_norm', False)
+        use_layer_norm = params.get('use_layer_norm', False)
+        log_id = params.get('log_id', None)
+        dataset_size = params.get('dataset_size', None)  # None: not a weather experiment
+        preload_dataset = params.get('preload_dataset', preload_dataset)
+        verbose = params.get('verbose', verbose)
+        gradient_accumulation = max(params.get('gradient_accumulation', 1), 1)
+
+        if 'nonlinearity' in params:
             nonlinearity = params['nonlinearity']
-        if 'use_batch_norm' not in params.keys():
-            use_batch_norm = False
+        elif model_type in ["SO3UNet", "SO3autoencoder", "SO3CNN", "SO3MNIST"]:
+            nonlinearity = "leaky_relu"
+        elif model_type in ["SpinsSO3UNet", "SpinsSO3autoencoder", "SpinsSO3CNN",
+                            "SpinsSO3MNIST"]:
+            nonlinearity = 'magnitude'
         else:
-            use_batch_norm = params['use_batch_norm']
-        if 'use_layer_norm' not in params.keys():
-            use_layer_norm = False
-        else:
-            use_layer_norm = params['use_layer_norm']
-        if 'log_id' not in params.keys():
-            log_id = None
-        else:
-            log_id = params['log_id']
-        if 'dataset_size' not in params.keys(): #Not a weather experiment
-            dataset_size = None
-        else:
-            dataset_size = params['dataset_size']
-        if 'gradient_accumulation' not in params.keys():
-            gradient_accumulation = 1
-        else:
-            gradient_accumulation = max(params['gradient_accumulation'], 1) # At least once per iter
+            nonlinearity = None  # CNNs
     
     # Parameters check
     if model_type not in ALLOWED_MODEL_TYPES:
@@ -227,12 +203,10 @@ def run_training(gpu_id: int, # gpu id to use
             val_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
 
-        train_dataloader = torch.utils.data.DataLoader(dataset = train_dataset,
-                                                       batch_size = batch_size,
-                                                       shuffle = True, pin_memory=True)
-        val_dataloader = torch.utils.data.DataLoader(dataset = val_dataset,
-                                                     batch_size = batch_size,
-                                                     shuffle = False, pin_memory=True)
+        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
+                                           shuffle=True)
+        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
+                                         shuffle=False)
         
         # model type
         if model_type == "SO3UNet":
@@ -345,12 +319,10 @@ def run_training(gpu_id: int, # gpu id to use
             val_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
 
-        train_dataloader = torch.utils.data.DataLoader(dataset = train_dataset,
-                                                       batch_size = batch_size,
-                                                       shuffle = True, pin_memory=True)
-        val_dataloader = torch.utils.data.DataLoader(dataset = val_dataset,
-                                                     batch_size = batch_size,
-                                                     shuffle = False, pin_memory=True)
+        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
+                                           shuffle=True)
+        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
+                                         shuffle=False)
 
         # model type
         if model_type == "SO3UNet":
@@ -437,12 +409,10 @@ def run_training(gpu_id: int, # gpu id to use
             val_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
 
-        train_dataloader = torch.utils.data.DataLoader(dataset = train_dataset,
-                                                       batch_size = batch_size,
-                                                       shuffle = True, pin_memory=True)
-        val_dataloader = torch.utils.data.DataLoader(dataset = val_dataset,
-                                                     batch_size = batch_size,
-                                                     shuffle = False, pin_memory=True)
+        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
+                                           shuffle=True)
+        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
+                                         shuffle=False)
         
         # model type
         if model_type == "SO3autoencoder": 
@@ -501,12 +471,10 @@ def run_training(gpu_id: int, # gpu id to use
                                             compute_device = DEVICE,
                                             caching = preload_dataset, verbose = verbose)
 
-        train_dataloader = torch.utils.data.DataLoader(dataset = train_dataset,
-                                                       batch_size = batch_size,
-                                                       shuffle = True, pin_memory = True)
-        val_dataloader = torch.utils.data.DataLoader(dataset = val_dataset,
-                                                     batch_size = batch_size,
-                                                     shuffle = False, pin_memory = True)
+        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
+                                           shuffle=True)
+        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
+                                         shuffle=False)
         lossfnc = torch.nn.CrossEntropyLoss()
 
         if model_type == "SO3MNIST": 
@@ -584,12 +552,10 @@ def run_training(gpu_id: int, # gpu id to use
                                             compute_device=DEVICE,
                                             caching=preload_dataset, verbose=verbose)
 
-        train_dataloader = torch.utils.data.DataLoader(dataset = train_dataset,
-                                                       batch_size = batch_size,
-                                                       shuffle = True, pin_memory=True)
-        val_dataloader = torch.utils.data.DataLoader(dataset = val_dataset,
-                                                     batch_size = batch_size,
-                                                     shuffle = False, pin_memory=True)
+        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
+                                           shuffle=True)
+        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
+                                         shuffle=False)
         
         lossfnc = torch.nn.CrossEntropyLoss()
         
@@ -647,12 +613,10 @@ def run_training(gpu_id: int, # gpu id to use
                                             caching=preload_dataset, verbose=verbose)
 
             
-        train_dataloader = torch.utils.data.DataLoader(dataset = train_dataset,
-                                                       batch_size = batch_size,
-                                                       shuffle = True, pin_memory=True)
-        val_dataloader = torch.utils.data.DataLoader(dataset = val_dataset,
-                                                     batch_size = batch_size,
-                                                     shuffle = False, pin_memory=True)
+        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
+                                           shuffle=True)
+        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
+                                         shuffle=False)
 
         lossfnc = S2MSELoss(n_beta=59)
 
@@ -706,12 +670,10 @@ def run_training(gpu_id: int, # gpu id to use
                                             caching=preload_dataset, verbose=verbose)
 
 
-        train_dataloader = torch.utils.data.DataLoader(dataset = train_dataset,
-                                                       batch_size = batch_size,
-                                                       shuffle = True, pin_memory=True)
-        val_dataloader = torch.utils.data.DataLoader(dataset = val_dataset,
-                                                     batch_size = batch_size,
-                                                     shuffle = False, pin_memory=True)
+        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
+                                           shuffle=True)
+        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
+                                         shuffle=False)
 
         lossfnc = S2MSELoss(n_beta=59)
 

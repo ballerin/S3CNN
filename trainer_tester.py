@@ -15,6 +15,13 @@ def accuracy(outputs, labels):
     # Compare predictions to labels and take mean
     return (preds == labels).float().mean()
 
+def _sync(device):
+    """CUDA kernels are launched asynchronously; without this the timers around
+    the forward and backward passes measure the launch, not the work."""
+    if torch.device(device).type == "cuda":
+        torch.cuda.synchronize(device)
+
+
 class Trainer:
     def __init__(
         self,
@@ -71,6 +78,7 @@ class Trainer:
 
     def _run_batch(self, source, targets, i = None, train=True, optimizer_step=True, n_acc=1):
         # BEGIN FWD
+        _sync(self.device)
         time_start = time.time()
         
         if train:
@@ -85,6 +93,7 @@ class Trainer:
             acc = accuracy(output, targets)
 
         # END FWD
+        _sync(self.device)
         time_fwd = time.time()
         # BEGIN BWD
         
@@ -95,6 +104,7 @@ class Trainer:
                 self.optimizer.step()
                 self.optimizer.zero_grad() #Zero-grad here for gradient accumulation
 
+        _sync(self.device)
         time_bwd = time.time()
         # END BWD
 
@@ -115,7 +125,7 @@ class Trainer:
     def _run_epoch(self, epoch, rotatorX=None, rotatorY=None):
         time_epoch_start = time.time()
         steps = len(self.train_dataloader)
-        b_sz = len(next(iter(self.train_dataloader))[0])
+        b_sz = self.train_dataloader.batch_size
         with open(self.logs_path+"training_log.txt",'a') as ff:
             ff.write(f"[GPU-{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {steps}\n")
 
@@ -360,6 +370,7 @@ class Tester:
         self.lossfnc = lossfnc
 
     def _run_batch(self, source, targets, i = None, train=False):
+        _sync(self.device)
         time_start = time.time()
 
         with torch.no_grad():
@@ -370,6 +381,7 @@ class Tester:
         else:
             loss = self.lossfnc(output, targets)
 
+        _sync(self.device)
         time_fwd = time.time()
         if train:
             with open(self.log_path,'a') as ff:
@@ -392,7 +404,7 @@ class Tester:
                 self.losses.extend([loss.item(),]*source.size(0))  
 
     def _run_epoch(self, beta=0):
-        b_sz = len(next(iter(self.dataloader))[0])
+        b_sz = self.dataloader.batch_size
         with open(self.log_path,'a') as ff:
             ff.write(f"[GPU-{self.gpu_id}] Beta={beta} | Batchsize: {b_sz} | Steps: {len(self.dataloader)}\n")
   

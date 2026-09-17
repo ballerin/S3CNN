@@ -5,17 +5,19 @@ from torch.nn.modules import Module
 import torch.nn.functional as F
 
 from tqdm import tqdm
-import pickle
 
 from .SO3fft import S2_to_SO3, SO3_to_S2
 from .SO3fft import S2FFT
 from .SO3fft import S2iFFT
 from .SO3fft import SO3FFT, SO3iFFT
 
+from . import precomp
+from .SO3lib import normalise_spins
 from .SO3ConvLayer import SO3Conv, SpinSO3Conv
 
 from .SpectralModules import ComplexDropout, MagnitudeNonlinearity, WeightedLeakyReLU, \
-    SpatialSmoothing, SpinSpectralBatchNormalization, PhaseCollapseNonlinearity, WeightedReLU, \
+    SpatialSmoothing, SpinSpectralBatchNormalization, FullSpectralBatchNormalization, \
+    PhaseCollapseNonlinearity, WeightedReLU, \
     SpinSpectralLayerNormalization, FullSpectralLayerNormalization
 
 """
@@ -129,25 +131,13 @@ class SO3UNet(nn.Module):
         if self.nonlinearity_type not in ALLOWED_NONLINEARITIES:
             raise ValueError(f"Nonlinearity must be one of {ALLOWED_NONLINEARITIES}, got {self.nonlinearity_type}")
 
-        if isinstance(self.spins[-1],list):
-            if len(self.spins[-1]) != 1:
-                raise ValueError("Last spin must be a single value, not a list. Got {}".format(self.spins[-1]))
-            else:
-                if self.spins[-1][0] == 0:
-                    self.output = "scalar"
-                elif self.spins[-1][0] == 1:
-                    self.output = "vector"
-                else:
-                    raise ValueError("Last spin must be 0 or 1, not {}".format(self.spins[-1][0]))
-        elif isinstance(self.spins[-1],int):
-            if self.spins[-1] == 0:
-                self.output = "scalar"
-            elif self.spins[-1] == 1:
-                self.output = "vector"
-            else:
-                raise ValueError("Last spin must be 0 or 1, not {}".format(self.spins[-1]))
-        else:
-            raise ValueError("Last spin must be a list or an int, not {}".format(self.spins[-1]))
+        # `spins` accepts 0, [0] or [0,1] per layer; normalise so the rest of the
+        # constructor can assume lists.
+        self.spins = normalise_spins(self.spins)
+
+        if len(self.spins[-1]) != 1:
+            raise ValueError("Last spin must be a single value, got {}".format(self.spins[-1]))
+        self.output = "scalar" if self.spins[-1][0] == 0 else "vector"
         
         ### Sanity check ###
         # Example of resolutions: [179, 100, 50, 100, 179]
@@ -185,7 +175,7 @@ class SO3UNet(nn.Module):
             if wigner_n0 == None:
                 # If no Wigner d-matrices are provided, load them from the precomputed file to the DEVICE
                 self.wigner_n0 = \
-                    [m.requires_grad_(False) for m in pickle.load(open("precomp/SLICE_WIGNER_N0_"+str(n_beta)+".list","rb"))]
+                    precomp.load("SLICE_WIGNER_N0", n_beta, max(self.resolutions))
             else:
                 # If Wigner d-matrices are provided, make sure they are on the DEVICE
                 self.wigner_n0 = [m.requires_grad_(False) for m in wigner_n0]
@@ -202,7 +192,7 @@ class SO3UNet(nn.Module):
             if wigner_n1 == None:
                 # If no Wigner d-matrices are provided, load them from the precomputed file to the DEVICE
                 self.wigner_n1 =\
-                    [m.requires_grad_(False) for m in pickle.load(open("precomp/SLICE_WIGNER_N1_"+str(n_beta)+".list","rb"))]
+                    precomp.load("SLICE_WIGNER_N1", n_beta, max(self.resolutions))
             else:
                 # If Wigner d-matrices are provided, make sure they are on the DEVICE
                 self.wigner_n1 = [m.requires_grad_(False) for m in wigner_n1]
@@ -223,7 +213,7 @@ class SO3UNet(nn.Module):
             elif self.fft_method == "full":
                 if f_wigner == None:
                     # If no Wigner d-matrices are provided, load them from the precomputed file to the DEVICE
-                    self.f_wigner = [m.requires_grad_(False) for m in pickle.load(open("precomp/FULL_WIGNER_"+str(n_beta)+".list","rb"))]
+                    self.f_wigner = precomp.load("FULL_WIGNER", n_beta, max(self.resolutions))
                 else:
                     # If Wigner d-matrices are provided, make sure they are on the DEVICE
                     self.f_wigner = [m.requires_grad_(False) for m in f_wigner]
@@ -323,11 +313,11 @@ class SO3UNet(nn.Module):
             if self.layer_style == "so3":
                 if self.use_batch_norm:
                     self.batchnorm_down.append(
-                        SpinSpectralBatchNormalization(nfeatures = self.fs_down[i]['f_out'],
-                                                    n = self.fs_down[i]['out_spins']))
+                        FullSpectralBatchNormalization(spins = self.fs_down[i]['out_spins'],
+                                                    nfeatures = self.fs_down[i]['f_out']))
                 if self.use_layer_norm:
                     self.layernorm_down.append(
-                        FullSpectralLayerNormalization(nfeatures = self.fs_down[i]['f_out']))
+                        FullSpectralLayerNormalization(n = self.fs_down[i]['out_spins'], nfeatures = self.fs_down[i]['f_out']))
                 if self.nonlinearity_type == "relu":
                     self.nonlinearities_down.append(WeightedReLU())
                 elif self.nonlinearity_type == "leaky_relu":
@@ -372,6 +362,11 @@ class SO3UNet(nn.Module):
                     L= self.fs_up[i]['L'],
                 ))
 
+            # `forward` skips everything after the convolution on the last up
+            # layer, so building it there would only create dead parameters.
+            if i == len(self.fs_up) - 1:
+                continue
+
             if self.layer_style == "so3":
                 self.iFFTs_up.append(SO3iFFT(
                     L= self.fs_up[i]['L'],
@@ -390,11 +385,11 @@ class SO3UNet(nn.Module):
             if self.layer_style == "so3":
                 if self.use_batch_norm:
                     self.batchnorm_up.append(
-                        SpinSpectralBatchNormalization(nfeatures = self.fs_up[i]['f_out'],
-                                                    n = self.fs_up[i]['out_spins']))
+                        FullSpectralBatchNormalization(spins = self.fs_up[i]['out_spins'],
+                                                    nfeatures = self.fs_up[i]['f_out']))
                 if self.use_layer_norm:
                     self.layernorm_up.append(
-                        FullSpectralLayerNormalization(nfeatures = self.fs_up[i]['f_out']))
+                        FullSpectralLayerNormalization(n = self.fs_up[i]['out_spins'], nfeatures = self.fs_up[i]['f_out']))
                 if self.nonlinearity_type == "relu":
                     self.nonlinearities_up.append(WeightedReLU())
                 elif self.nonlinearity_type == "leaky_relu":

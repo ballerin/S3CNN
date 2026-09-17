@@ -1,5 +1,22 @@
+import math
+
 import torch
 import torch.nn as nn
+
+
+def complex_glorot(shape, fan_in: int, fan_out: int) -> torch.Tensor:
+    """Complex Glorot initialisation: Rayleigh magnitude, uniform phase.
+
+    Trabelsi et al., "Deep Complex Networks" (ICLR 2018), sec. 3.6. The scale
+    is chosen so E[|w|^2] = 2/(fan_in + fan_out), which is the Glorot criterion
+    carried over to complex weights. Sampling goes through torch so that
+    `torch.manual_seed` reproduces it.
+    """
+    sigma = 1.0 / math.sqrt(fan_in + fan_out)
+    u = torch.rand(shape).clamp_min(torch.finfo(torch.float32).tiny)
+    magnitude = sigma * torch.sqrt(-2.0 * torch.log(u))
+    phase = torch.rand(shape) * (2 * math.pi) - math.pi
+    return torch.polar(magnitude, phase)
 
 
 class SO3Conv(nn.modules.Module):
@@ -14,7 +31,7 @@ class SO3Conv(nn.modules.Module):
         nfeature_in: number of input features
         nfeature_out: number of output features
         L: input bandwidth (precision of the input SOFT grid)
-        n: provided if the input x \in X_n (this doesn't really matter for the convolution as of now)
+        n: provided if the input x in X_n (this doesn't really matter for the convolution as of now)
         """
         super(SO3Conv, self).__init__()
 
@@ -22,12 +39,10 @@ class SO3Conv(nn.modules.Module):
         self.nfeature_out = nfeature_out
         self.L = L
 
-        self.kernel = torch.ones(self.L*(self.L+2)+1, dtype=torch.complex64).repeat(nfeature_in, nfeature_out,1)
-
-        # Normalized initialization of the filter
-        for l in range(0, self.L+1):
-            self.kernel[...,(l-1)*(l+1)+1:l*(l+2)+1] *= 1/((2*l+1)*self.nfeature_out)
-        self.kernel = nn.parameter.Parameter(self.kernel)
+        # The contraction is over the input channel alone, so that is the fan-in.
+        self.kernel = nn.parameter.Parameter(complex_glorot(
+            (nfeature_in, nfeature_out, self.L*(self.L+2)+1),
+            fan_in=nfeature_in, fan_out=nfeature_out))
 
     def forward(self, x):
         """
@@ -78,13 +93,14 @@ class SO3toSO3Conv(nn.modules.Module):
         self.nfeature_out = nfeature_out
         self.L = L
 
-        self.kernel = nn.ParameterList()
-        for l in range(0, self.L + 1):
-            k = torch.ones(nfeature_in, nfeature_out, 2 * l + 1, 2 * l + 1, dtype=torch.complex64)
-            # Normalized initialization of the filter (fan-in is nfeature_in * (2l+1), since
-            # both the input feature and the input's own row index are contracted over)
-            k *= 1 / ((2 * l + 1) * self.nfeature_in)
-            self.kernel.append(nn.parameter.Parameter(k))
+        # Both the input channel and the input's own row index are contracted,
+        # so the fan counts (2l+1) as well and grows with the order.
+        self.kernel = nn.ParameterList(
+            nn.parameter.Parameter(complex_glorot(
+                (nfeature_in, nfeature_out, 2 * l + 1, 2 * l + 1),
+                fan_in=nfeature_in * (2 * l + 1),
+                fan_out=nfeature_out * (2 * l + 1)))
+            for l in range(0, self.L + 1))
 
     def forward(self, x):
         """
@@ -115,11 +131,10 @@ class SpinSO3Conv(nn.modules.Module):
         self.nfeature_out = nfeature_out
         self.L = L
 
-        self.kernel = torch.ones(self.L+1, dtype=torch.complex64).repeat(nfeature_in, nfeature_out,1)
-        # Normalized initialization of the filter
-        for l in range(0, self.L+1):
-            self.kernel[:,:,l] *= 1/((2*l+1)*self.nfeature_out)
-        self.kernel = nn.parameter.Parameter(self.kernel)
+        # One weight per order; the contraction is over the input channel alone.
+        self.kernel = nn.parameter.Parameter(complex_glorot(
+            (nfeature_in, nfeature_out, self.L+1),
+            fan_in=nfeature_in, fan_out=nfeature_out))
     
     def forward(self, x):
         """

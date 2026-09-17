@@ -1,14 +1,10 @@
 import os
-from tabnanny import verbose
 import numpy as np
-from sympy import comp
 import torch
-import scipy
 import pickle
 import argparse
 
 from tqdm import tqdm
-import math
 import random
 
 
@@ -161,9 +157,11 @@ if __name__ == '__main__':
                 angle = from_index_to_beta(np.arange(0,n_beta), n_beta=n_beta)
                 aa = vectorized_wigner_d_matrix(l,angle)
                 full_wigner_d_list.append(aa.requires_grad_(False))
-                slice_wigner_0_list.append(aa[:,:,l+0].requires_grad_(False))
+                # `.contiguous()` matters: pickling a view writes out the whole
+                # backing tensor, which made each slice file as large as the full one.
+                slice_wigner_0_list.append(aa[:,:,l+0].contiguous().requires_grad_(False))
                 if l>0: # The sliced version for n=1 cannot be computed for l=0 
-                    slice_wigner_1_list.append(aa[:,:,l+1].requires_grad_(False))
+                    slice_wigner_1_list.append(aa[:,:,l+1].contiguous().requires_grad_(False))
                 bdeltas.append(bDelta(l, aa[n_beta//2]).requires_grad_(False)) # n_beta//2 = pi/2
             pickle.dump(full_wigner_d_list, open("precomp/FULL_WIGNER_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
             if verbose:
@@ -190,6 +188,6 @@ if __name__ == '__main__':
                                             bdeltas[l],
                                             torch.conj(bdeltas[l]),
                                 ).requires_grad_(False))
-                pickle.dump(conj_prod, open("precomp/CONJ_PROD_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
+            pickle.dump(conj_prod, open("precomp/CONJ_PROD_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
             if verbose:
                 print("Saved conjugate products in precomp/CONJ_PROD_"+str(n_beta)+"_"+str(l_max)+".list")

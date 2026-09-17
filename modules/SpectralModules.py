@@ -1,5 +1,3 @@
-from numpy import dtype
-from zmq import device
 import torch
 import torch.nn as nn
 
@@ -44,10 +42,9 @@ class RealNonlinearity(nn.Module):
         super().__init__()
 
     def forward(self, z):
-        z = torch.view_as_real(z)
-        z[...,1] *= 0
-        z = torch.view_as_complex(z)
-        return z
+        # `view_as_real` aliases the caller's storage, so zeroing through it
+        # mutated the input.
+        return torch.complex(z.real, torch.zeros_like(z.real))
 
 class ComplexDropout(nn.Module):
     def __init__(self, p) -> None:
@@ -66,9 +63,9 @@ class SpectralDropout(nn.Module):
         self.module = nn.Dropout(p=p)
 
     def forward(self, z):
-        for i in range(len(z)):
-            z[i] = torch.view_as_complex(self.module(torch.view_as_real(z[i])))
-        return z
+        # Assigning into `z` rebound the caller's list.
+        return [torch.view_as_complex(self.module(torch.view_as_real(z_l)))
+                for z_l in z]
 
 class MagnitudeNonlinearity(nn.Module):
     def __init__(self, n:int|list, spin_0_relu=True) -> None:
@@ -80,7 +77,10 @@ class MagnitudeNonlinearity(nn.Module):
             self.relu = WeightedLeakyReLU()
 
         self.EPS = 1e-6
-        self.b = nn.Parameter(torch.zeros((1,),dtype=torch.float32))
+        # `b` shifts the magnitude, which only happens on the spin-1 branch.
+        self.uses_b = self.spin1 or not self.spin_0_relu
+        if self.uses_b:
+            self.b = nn.Parameter(torch.zeros((1,),dtype=torch.float32))
 
     def forward(self, z):
         if self.spin_0_relu:
@@ -366,8 +366,10 @@ class SphericalBatchNormalization(nn.Module):
             elif self.dimensions == 3:
                 diff = x - mean.view(1, -1, 1, 1, 1)
 
-            # Weighted variance
-            weighted_var = self._spherical_mean(diff**2, weights) / norm_factor
+            # E[x^2] vanishes for spin != 0 (paper appendix E); the variance of a
+            # complex signal is E[|x|^2], which is also real, as running_var expects.
+            weighted_var = self._spherical_mean(diff.real**2 + diff.imag**2,
+                                                weights) / norm_factor
 
 
             if self.use_running_stats:
@@ -409,18 +411,18 @@ class SphericalBatchNormalization(nn.Module):
         if self.spin0 and self.spin1:
             # Mean is guaranteed to be not None
             x_hat = torch.cat((x[:,:self.nfeatures//2] - mean, x[:,self.nfeatures//2:]), dim=1)
-            x_hat /= torch.sqrt(weighted_var)
+            x_hat = x_hat / torch.sqrt(weighted_var + self.eps)
         elif self.spin0 and not self.spin1:
             # Mean is guaranteed to be not None
-            x_hat = x - mean
-            x_hat /= torch.sqrt(weighted_var)
+            x_hat = (x - mean) / torch.sqrt(weighted_var + self.eps)
         else:
             # Mean is None
-            x_hat = x / torch.sqrt(weighted_var)
+            x_hat = x / torch.sqrt(weighted_var + self.eps)
 
         ##############################
         # Apply learnable parameters #
         ##############################
+        y = x_hat
         if self.bias is not None or self.scale is not None:
             if self.scale is not None:
                 if self.dimensions == 2:
@@ -429,6 +431,7 @@ class SphericalBatchNormalization(nn.Module):
                     scale = self.scale.view(1, -1, 1, 1, 1)
                 y = scale * x_hat
             if self.bias is not None:
+                y = y.clone()
                 if self.dimensions == 2:
                     bias = self.bias.view(1, -1, 1, 1)
                 elif self.dimensions == 3:
@@ -441,8 +444,6 @@ class SphericalBatchNormalization(nn.Module):
                     y += bias
                 else: # Only spin 1, no bias
                     pass
-        else:
-            y = x_hat
 
         return y
 
@@ -450,7 +451,8 @@ class FullSpectralBatchNormalization(nn.Module):
     """
     Batch normalization for SO(3)-functions in the spectral domain.
     """
-    def __init__(self, spins: list|int, nfeatures: int, use_running_stats: bool = True, momentum: float = 0.01):
+    def __init__(self, spins: list|int, nfeatures: int, use_running_stats: bool = True,
+                 momentum: float = 0.01, eps=1e-6):
         super().__init__()
 
         self.nfeatures = nfeatures
@@ -458,6 +460,7 @@ class FullSpectralBatchNormalization(nn.Module):
         self.has_spin0, self.has_spin1 = compute_spins(self.n)
         self.use_running_stats = use_running_stats
         self.momentum = momentum
+        self.EPS = eps
 
         #######################################################
         ## Running statistics (running mean only for spin 0) ##
@@ -488,8 +491,15 @@ class FullSpectralBatchNormalization(nn.Module):
 
         # Compute batch statistics if training, otherwise use running stats
         if self.training:
-            # The mean is the coefficient x^0_{00} for spin 0 features, and 0 for spin 1 features
-            batch_mean = torch.mean(x[0][:, :self.nfeatures//2, :, 0])
+            # The mean is the coefficient x^0_{00} for spin 0 features, and 0 for spin 1
+            # features. x[0] is [batch, features, 1, 1], so reduce over the batch only:
+            # running_mean is per channel.
+            if self.has_spin0 and self.has_spin1:
+                batch_mean = torch.mean(x[0][:, :self.nfeatures//2, 0, 0], dim=0)
+            elif self.has_spin0:
+                batch_mean = torch.mean(x[0][:, :, 0, 0], dim=0)
+            else:
+                batch_mean = None
 
             # Variance is the norm over non-zero coefficients
             batch_var = torch.zeros((x[0].shape[0], x[0].shape[1]), dtype=torch.float32, device=x[0].device)
@@ -500,15 +510,8 @@ class FullSpectralBatchNormalization(nn.Module):
 
             if self.use_running_stats:
                 # Update running stats
-                if self.has_spin0 and self.has_spin1:
-                    # Both spins, running mean only for spin 0
+                if batch_mean is not None:
                     self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * batch_mean
-                elif self.has_spin0 and not self.has_spin1:
-                    # Only spin 0
-                    self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * batch_mean
-                else:
-                    # Spin 1 only, no running mean update
-                    pass
 
                 # Running variance for all spins
                 self.running_var = (1 - self.momentum) * self.running_var + self.momentum * batch_var
@@ -526,7 +529,7 @@ class FullSpectralBatchNormalization(nn.Module):
                 else:
                     x_l_hat = x_l
                 # Avoid in-place division on a view that may share storage with autograd graph
-                x_l_hat = x_l_hat / torch.sqrt(batch_var).view(1, -1, 1, 1)
+                x_l_hat = x_l_hat / torch.sqrt(batch_var + self.EPS).view(1, -1, 1, 1)
                 y.append(x_l_hat)
         elif self.has_spin0 and not self.has_spin1:
             # Only spin 0
@@ -536,14 +539,14 @@ class FullSpectralBatchNormalization(nn.Module):
                     x_l_hat = x_l - batch_mean.view(1, -1, 1, 1)
                 else:
                     x_l_hat = x_l
-                x_l_hat = x_l_hat / torch.sqrt(batch_var).view(1, -1, 1, 1)
+                x_l_hat = x_l_hat / torch.sqrt(batch_var + self.EPS).view(1, -1, 1, 1)
                 y.append(x_l_hat)
         else:
             # Mean is None
             y = []
             for l, x_l in enumerate(x):
                 # Out-of-place division to avoid modifying input tensors in-place
-                x_l_hat = x_l / torch.sqrt(batch_var).view(1, -1, 1, 1)
+                x_l_hat = x_l / torch.sqrt(batch_var + self.EPS).view(1, -1, 1, 1)
                 y.append(x_l_hat)
         
         return y
@@ -552,11 +555,13 @@ class FullSpectralLayerNormalization(nn.Module):
     """
     Layer normalization for SO(3)-functions in the spectral domain.
     """
-    def __init__(self, nfeatures: int, eps=1e-6):
+    def __init__(self, n: int|list, nfeatures: int, eps=1e-6):
         super().__init__()
 
         self.nfeatures = nfeatures
         self.EPS = eps
+        self.n = process_n(n)
+        self.has_spin0, self.has_spin1 = compute_spins(self.n)
     
     def forward(self, x):
         """
@@ -571,8 +576,15 @@ class FullSpectralLayerNormalization(nn.Module):
         """
         # Recall that data is a list ordered by l, and each element has shape [batch, features, m, n]
 
-        # The mean is the coefficient x^0_{00} for spin 0 features, and 0 for spin 1 features
-        channels_mean = torch.mean(x[0][:, :, 0, 0], dim=1)
+        # The mean is the coefficient x^0_{00} for spin 0 features, and structurally 0
+        # for spin 1 features -- averaging those in would bias it, and subtracting from
+        # them is not equivariant.
+        if self.has_spin0 and self.has_spin1:
+            channels_mean = torch.mean(x[0][:, :self.nfeatures//2, 0, 0], dim=1)
+        elif self.has_spin0:
+            channels_mean = torch.mean(x[0][:, :, 0, 0], dim=1)
+        else:
+            channels_mean = None
 
         # Variance is the norm over non-zero coefficients
         channels_var = torch.zeros((x[0].shape[0],), dtype=torch.float32, device=x[0].device)
@@ -584,12 +596,15 @@ class FullSpectralLayerNormalization(nn.Module):
         # Normalize
         y = []
         for l, x_l in enumerate(x):
-            if l==0:
-                y_l = x_l - channels_mean.view(-1, 1, 1, 1)
-            else:
-                y_l = x_l
-            y_l = y_l / torch.sqrt(channels_var+self.EPS).view(-1, 1, 1, 1)
-            y.append(y_l)
+            y_l = x_l
+            if l == 0 and channels_mean is not None:
+                mean = channels_mean.view(-1, 1, 1, 1)
+                if self.has_spin1:
+                    y_l = torch.cat((x_l[:, :self.nfeatures//2] - mean,
+                                     x_l[:, self.nfeatures//2:]), dim=1)
+                else:
+                    y_l = x_l - mean
+            y.append(y_l / torch.sqrt(channels_var+self.EPS).view(-1, 1, 1, 1))
 
         return y
 
@@ -613,8 +628,10 @@ class SpinSpectralBatchNormalization(nn.Module):
     
         weights = torch.ones(maxL*(maxL+2), dtype=torch.float32)
 
-        for l in range(maxL):
-            weights[(l+1)*(l+1)-1:(l+2)*(l+2)-1] /= 2*l+1
+        # `weights` indexes the flat spectrum with the l=0 entry dropped, so order l
+        # occupies [l^2-1, (l+1)^2-1). Paper appendix E: order l carries 1/(2l+1).
+        for l in range(1, maxL+1):
+            weights[l*l-1:(l+1)*(l+1)-1] /= 2*l+1
 
         self.register_buffer("order_scaling", weights) # Registering as buffer so they move to device with the model
 
@@ -706,8 +723,10 @@ class SpinSpectralLayerNormalization(nn.Module):
     
         weights = torch.ones(maxL*(maxL+2), dtype=torch.float32)
 
-        for l in range(maxL):
-            weights[(l+1)*(l+1)-1:(l+2)*(l+2)-1] /= 2*l+1
+        # `weights` indexes the flat spectrum with the l=0 entry dropped, so order l
+        # occupies [l^2-1, (l+1)^2-1). Paper appendix E: order l carries 1/(2l+1).
+        for l in range(1, maxL+1):
+            weights[l*l-1:(l+1)*(l+1)-1] /= 2*l+1
 
         self.register_buffer("order_scaling", weights) # Registering as buffer so they move to device with the model
     
@@ -788,18 +807,21 @@ class SpectralSmoothing(torch.nn.modules.Module):
         if len(x)!=self.L+1:
             raise Exception(f"Expected order up to L={self.L} but received L={len(x)-1}")
         y = []
+        def column(x_l, l, n, features):
+            """Column n of block l, or zeros: the l=0 block has no n=1 column."""
+            if l == 0 and n == 1:
+                return torch.zeros((batch_size, features, 1),
+                                   dtype=x_l.dtype, device=x_l.device)
+            return x_l[..., l + n]
+
         if type(self.n) == list: #If n is a list, we have both n=0 and n=1 features (half/half)
             for l in range(0,self.L+1):
-                x_l_0 = x[l][:,:n_features//2, :, l] #Half of the features are n=0
-                x_l_1 = x[l][:,n_features//2:, :, l+1] #Half of the features are n=1
+                x_l_0 = column(x[l][:,:n_features//2], l, 0, n_features//2)
+                x_l_1 = column(x[l][:,n_features//2:], l, 1, n_features//2)
                 y.append(torch.cat((x_l_0, x_l_1), dim=1))
         else: # If n is a number, then all features have the same n and we can apply the operation directly
             for l, x_l in enumerate(x):
-                #We cannot really slice n=1
-                if l==0 and self.n==1:
-                    y.append(torch.zeros((batch_size, n_features, 1, 1), dtype=torch.complex64, device=x[0].device))
-                else:
-                    y.append(x_l[...,l+self.n])
+                y.append(column(x_l, l, self.n, n_features))
         return y
     
 class SpatialSmoothing(torch.nn.modules.Module):

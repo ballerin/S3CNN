@@ -495,32 +495,32 @@ class WeatherDataset(SphericalDataset):
                 path_X = os.path.join(self.root, self.idx_to_data[idx][0],"X", self.idx_to_data[idx][1])
                 path_Y = os.path.join(self.root, self.idx_to_data[idx][0],"Y", self.idx_to_data[idx][1])
 
-                if self.datatype == "torch":
-                    X = torch.load(path_X)
-                    Y = torch.load(path_Y)
-                elif self.datatype == "numpy":
-                    X = np.load(path_X)
-                    Y = np.load(path_Y)
-                    
-                    # Process X with proper cleanup of intermediate tensors
-                    if self.in_datatype == "vector":
-                        X = np.clip(X, -MAX_WIND, MAX_WIND)
-                        X = X / MAX_WIND
-                        X_tensor = torch.from_numpy(X)
-                        del X  # Free numpy array
-                        X = torch.view_as_complex(torch.stack([-X_tensor[1], X_tensor[0]], dim=2)).to(torch.complex64)
-                        del X_tensor  # Free intermediate tensor
-                    elif self.in_datatype == "scalar":
-                        X = (X - 273.15 - MIN_TEMP)/(MAX_TEMP-MIN_TEMP)
-                        X = torch.from_numpy(X)
-                    
-                    # Process Y with proper cleanup of intermediate tensors
-                    if self.out_datatype == "vector":
-                        Y = np.clip(Y, -MAX_WIND, MAX_WIND)
-                        Y = Y / MAX_WIND
-                        Y_tensor = torch.from_numpy(Y)
-                        del Y  # Free numpy array
-                        Y = torch.view_as_complex(torch.stack([-Y_tensor[1], Y_tensor[0]], dim=2)).to(torch.complex64)
-                        del Y_tensor  # Free intermediate tensor
-            
-                return X, Y
+            if self.datatype == "torch":
+                X = torch.load(path_X)
+                Y = torch.load(path_Y)
+            elif self.datatype == "numpy":
+                X = np.load(path_X)
+                Y = np.load(path_Y)
+
+                # Process X with proper cleanup of intermediate tensors
+                if self.in_datatype == "vector":
+                    X = np.clip(X, -MAX_WIND, MAX_WIND)
+                    X = X / MAX_WIND
+                    X_tensor = torch.from_numpy(X)
+                    del X  # Free numpy array
+                    X = torch.view_as_complex(torch.stack([-X_tensor[1], X_tensor[0]], dim=2)).to(torch.complex64)
+                    del X_tensor  # Free intermediate tensor
+                elif self.in_datatype == "scalar":
+                    X = (X - 273.15 - MIN_TEMP)/(MAX_TEMP-MIN_TEMP)
+                    X = torch.from_numpy(X)
+
+                # Process Y with proper cleanup of intermediate tensors
+                if self.out_datatype == "vector":
+                    Y = np.clip(Y, -MAX_WIND, MAX_WIND)
+                    Y = Y / MAX_WIND
+                    Y_tensor = torch.from_numpy(Y)
+                    del Y  # Free numpy array
+                    Y = torch.view_as_complex(torch.stack([-Y_tensor[1], Y_tensor[0]], dim=2)).to(torch.complex64)
+                    del Y_tensor  # Free intermediate tensor
+
+            return X, Y

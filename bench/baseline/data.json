@@ -1,0 +1,324 @@
+{
+ "suite": "data",
+ "device": "NVIDIA A100-SXM4-80GB",
+ "gpu_uuid": "GPU-9e378485-4f5a-2bba-21f1-df5fb18f17ff",
+ "co_tenants": 0,
+ "co_tenants_end": 0,
+ "bandwidth_gb_s": 1622.1967887627425,
+ "torch": "2.3.0+cu118",
+ "host": "birget.uib.no",
+ "results": [
+  {
+   "suite": "data",
+   "name": "mnist_cached.startup",
+   "params": {
+    "workers": 0,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 8.825284004211426,
+   "ms_std": 0.0,
+   "peak_mem": 1748244480,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_cached.steady",
+   "params": {
+    "workers": 0,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 1.863189946860075,
+   "ms_std": 0.0699053406715393,
+   "peak_mem": 1748244480,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_cached.startup",
+   "params": {
+    "workers": 2,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 175.03564453125,
+   "ms_std": 0.0,
+   "peak_mem": 1792004096,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_cached.steady",
+   "params": {
+    "workers": 2,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 2.145472764968872,
+   "ms_std": 0.07515660673379898,
+   "peak_mem": 1792004096,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_cached.startup",
+   "params": {
+    "workers": 4,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 252.7846221923828,
+   "ms_std": 0.0,
+   "peak_mem": 1825777664,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_cached.steady",
+   "params": {
+    "workers": 4,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 2.5281094908714294,
+   "ms_std": 0.16951438784599304,
+   "peak_mem": 1825777664,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_cached.startup",
+   "params": {
+    "workers": 8,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 552.4541015625,
+   "ms_std": 0.0,
+   "peak_mem": 1885982720,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_cached.steady",
+   "params": {
+    "workers": 8,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 2.840297222137451,
+   "ms_std": 0.05144630745053291,
+   "peak_mem": 1885982720,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.startup",
+   "params": {
+    "workers": 0,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 91.88957977294922,
+   "ms_std": 0.0,
+   "peak_mem": 1773840384,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.steady",
+   "params": {
+    "workers": 0,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 89.95150402188301,
+   "ms_std": 17.57765007019043,
+   "peak_mem": 1773840384,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.startup",
+   "params": {
+    "workers": 2,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 285.1225891113281,
+   "ms_std": 0.0,
+   "peak_mem": 1805070336,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.steady",
+   "params": {
+    "workers": 2,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 25.337343096733093,
+   "ms_std": 0.6217861175537109,
+   "peak_mem": 1805070336,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.startup",
+   "params": {
+    "workers": 4,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 413.4563903808594,
+   "ms_std": 0.0,
+   "peak_mem": 1830422528,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.steady",
+   "params": {
+    "workers": 4,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 12.864326119422913,
+   "ms_std": 0.10345426946878433,
+   "peak_mem": 1830422528,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.startup",
+   "params": {
+    "workers": 8,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 687.343994140625,
+   "ms_std": 0.0,
+   "peak_mem": 1882038272,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "mnist_uncached.steady",
+   "params": {
+    "workers": 8,
+    "B": 32,
+    "n": 256
+   },
+   "ms": 7.306541442871094,
+   "ms_std": 0.05769755691289902,
+   "peak_mem": 1882038272,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.startup",
+   "params": {
+    "workers": 0,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 174.5467529296875,
+   "ms_std": 0.0,
+   "peak_mem": 1843212288,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.steady",
+   "params": {
+    "workers": 0,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 0.23846028645833334,
+   "ms_std": 0.06198114951451619,
+   "peak_mem": 1843212288,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.startup",
+   "params": {
+    "workers": 2,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 314.61712646484375,
+   "ms_std": 0.0,
+   "peak_mem": 1960830976,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.steady",
+   "params": {
+    "workers": 2,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 21.320402018229167,
+   "ms_std": 0.3811330795288086,
+   "peak_mem": 1960830976,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.startup",
+   "params": {
+    "workers": 4,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 475.0082092285156,
+   "ms_std": 0.0,
+   "peak_mem": 2086088704,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.steady",
+   "params": {
+    "workers": 4,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 23.239764404296874,
+   "ms_std": 0.39930845896402994,
+   "peak_mem": 2086088704,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.startup",
+   "params": {
+    "workers": 8,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 784.0787963867188,
+   "ms_std": 0.0,
+   "peak_mem": 2116760576,
+   "traffic": 0
+  },
+  {
+   "suite": "data",
+   "name": "weather_cached.steady",
+   "params": {
+    "workers": 8,
+    "B": 32,
+    "n": 15
+   },
+   "ms": 35.796529134114586,
+   "ms_std": 2.4966796875,
+   "peak_mem": 2116760576,
+   "traffic": 0
+  }
+ ]
+}

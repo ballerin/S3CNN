@@ -1,0 +1,108 @@
+{
+ "suite": "models",
+ "device": "NVIDIA A100-SXM4-80GB",
+ "gpu_uuid": "GPU-4561992f-3f07-1cfe-9625-8de0e4480791",
+ "co_tenants": 1,
+ "co_tenants_end": 1,
+ "bandwidth_gb_s": 1622.4663662420244,
+ "torch": "2.3.0+cu118",
+ "host": "birget.uib.no",
+ "results": [
+  {
+   "suite": "models",
+   "name": "unet_so3.forward",
+   "params": {
+    "B": 1,
+    "params": 4277370
+   },
+   "ms": 379.5132141113281,
+   "ms_std": 2.237786054611206,
+   "peak_mem": 13233116160,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "unet_so3.fwd+bwd",
+   "params": {
+    "B": 1,
+    "params": 4277370
+   },
+   "ms": 2290.860595703125,
+   "ms_std": 11.744390487670898,
+   "peak_mem": 16799855616,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "unet_spins.forward",
+   "params": {
+    "B": 1,
+    "params": 4163443
+   },
+   "ms": 545.3983154296875,
+   "ms_std": 1.185151219367981,
+   "peak_mem": 301297664,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "unet_spins.fwd+bwd",
+   "params": {
+    "B": 1,
+    "params": 4163443
+   },
+   "ms": 1567.02978515625,
+   "ms_std": 8.284564971923828,
+   "peak_mem": 839248896,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "cnn_so3.forward",
+   "params": {
+    "B": 1,
+    "params": 648008
+   },
+   "ms": 570.2448120117188,
+   "ms_std": 0.5505650639533997,
+   "peak_mem": 13730868736,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "cnn_so3.fwd+bwd",
+   "params": {
+    "B": 1,
+    "params": 648008
+   },
+   "ms": 3246.28564453125,
+   "ms_std": 1.6111724376678467,
+   "peak_mem": 16082595840,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "cnn_spins.forward",
+   "params": {
+    "B": 1,
+    "params": 9012259
+   },
+   "ms": 776.3941040039062,
+   "ms_std": 1.006614089012146,
+   "peak_mem": 678195200,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "cnn_spins.fwd+bwd",
+   "params": {
+    "B": 1,
+    "params": 9012259
+   },
+   "ms": 2600.16943359375,
+   "ms_std": 8.787596702575684,
+   "peak_mem": 1572054016,
+   "traffic": 0
+  }
+ ]
+}

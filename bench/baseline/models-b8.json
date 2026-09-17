@@ -1,0 +1,60 @@
+{
+ "suite": "models",
+ "device": "NVIDIA A100-SXM4-80GB",
+ "gpu_uuid": "GPU-f477ffe0-cf9e-ea5e-4906-d06a7225ad31",
+ "co_tenants": 1,
+ "co_tenants_end": 1,
+ "bandwidth_gb_s": 1619.2380882670188,
+ "torch": "2.3.0+cu118",
+ "host": "birget.uib.no",
+ "results": [
+  {
+   "suite": "models",
+   "name": "unet_spins.forward",
+   "params": {
+    "B": 8,
+    "params": 4163443
+   },
+   "ms": 573.6555786132812,
+   "ms_std": 5.8277812004089355,
+   "peak_mem": 1400681472,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "unet_spins.fwd+bwd",
+   "params": {
+    "B": 8,
+    "params": 4163443
+   },
+   "ms": 2615.35986328125,
+   "ms_std": 7.909161567687988,
+   "peak_mem": 4083814912,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "cnn_spins.forward",
+   "params": {
+    "B": 8,
+    "params": 9012259
+   },
+   "ms": 1167.905029296875,
+   "ms_std": 1.7649807929992676,
+   "peak_mem": 4147412992,
+   "traffic": 0
+  },
+  {
+   "suite": "models",
+   "name": "cnn_spins.fwd+bwd",
+   "params": {
+    "B": 8,
+    "params": 9012259
+   },
+   "ms": 8417.673828125,
+   "ms_std": 9.260820388793945,
+   "peak_mem": 9138620928,
+   "traffic": 0
+  }
+ ]
+}

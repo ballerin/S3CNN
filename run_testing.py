@@ -1,11 +1,10 @@
 import os
 import pickle
 
-from matplotlib.pylab import False_
-from sympy import use
 import torch
 
 from SphericalDataset import WeatherDataset, SphericalMNISTDataset
+from utils.data_utils import make_dataloader
 
 from modules.CNNUNet import CNNUNet
 from modules.CNNAutoencoder import CNNAutoencoder512
@@ -51,8 +50,7 @@ def run_testing(gpu_id: int, # gpu id to use
         rotate = params['rotate']
         path = params['path']
 
-        if 'fft_method' not in params.keys():
-            fft_method = 'full'
+        fft_method = params.get('fft_method', 'full')
         if 'nonlinearity' not in params.keys():
             if model_type in ["SO3UNet", "SO3autoencoder", "SO3MNIST"]:
                 nonlinearity = "leaky_relu"
@@ -127,9 +125,8 @@ def run_testing(gpu_id: int, # gpu id to use
                                       in_datatype = "vector", out_datatype = "vector")
         test_dataset.preload()
 
-        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
-                                                      batch_size = batch_size,
-                                                      shuffle = False, pin_memory = True)
+        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
+                                          shuffle=False)
         
         if rotate != "no":
             test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
@@ -237,9 +234,8 @@ def run_testing(gpu_id: int, # gpu id to use
             test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
         
-        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
-                                                      batch_size = batch_size,
-                                                      shuffle = False, pin_memory = True)
+        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
+                                          shuffle=False)
         
         
         if model_type == "SO3UNet":
@@ -293,9 +289,8 @@ def run_testing(gpu_id: int, # gpu id to use
             test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
         
-        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
-                                                      batch_size = batch_size,
-                                                      shuffle = False, pin_memory=True)
+        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
+                                          shuffle=False)
         
         lossfnc = S2RMSELoss(n_beta=179)
 
@@ -348,9 +343,8 @@ def run_testing(gpu_id: int, # gpu id to use
             test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
         
-        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
-                                                      batch_size = batch_size,
-                                                      shuffle = False, pin_memory=True)
+        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
+                                          shuffle=False)
         
         lossfnc = None  # No loss function needed for classification test, as we use accuracy
 
@@ -413,9 +407,8 @@ def run_testing(gpu_id: int, # gpu id to use
             test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
 
-        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
-                                                      batch_size = batch_size,
-                                                      shuffle = False, pin_memory=True)
+        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
+                                          shuffle=False)
         
         lossfnc = None  # No loss function needed for classification test, as we use accuracy
         
@@ -460,9 +453,8 @@ def run_testing(gpu_id: int, # gpu id to use
             test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
             
-        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
-                                                      batch_size = batch_size,
-                                                      shuffle = True, pin_memory=True)
+        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
+                                          shuffle=True)
 
         lossfnc = S2RMSELoss(n_beta=59)
 
@@ -505,9 +497,8 @@ def run_testing(gpu_id: int, # gpu id to use
             test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
                                          rotation_type=rotate)
             
-        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
-                                                      batch_size = batch_size,
-                                                      shuffle = True, pin_memory=True)
+        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
+                                          shuffle=True)
 
         lossfnc = S2RMSELoss(n_beta=59)
 
