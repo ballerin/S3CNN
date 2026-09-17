@@ -8,7 +8,6 @@ hand-written zoos had already gone wrong.
 
 from __future__ import annotations
 
-import inspect
 
 import pytest
 
@@ -41,8 +40,7 @@ def test_every_entry_is_callable_as_written(key):
     """`head=True` reached one zoo and not the other; a keyword the class does
     not take would have been a TypeError at the first run of the experiment."""
     spec = zoo.ZOO[key]
-    accepted = set(inspect.signature(spec.cls.__init__).parameters)
-    unknown = sorted(set(spec.kwargs) - accepted)
+    unknown = sorted(set(spec.kwargs) - zoo.accepted(spec.cls))
     assert not unknown, f"{spec.cls.__name__} does not take {unknown}"
 
 
@@ -114,6 +112,15 @@ def test_build_applies_the_schedule_but_an_entry_keeps_what_it_names(monkeypatch
     m = zoo.build("wind->wind", "Fake", nonlinearity="relu", use_batch_norm=False,
                   spins=[[1]], fft_method=None)
     assert (m.nonlinearity, m.use_batch_norm) == ("magnitude", False)
+
+
+@pytest.mark.parametrize("key", [k for k in KEYS if zoo.ZOO[k].kwargs.get("arch")],
+                         ids=lambda k: f"{k[0]}:{k[1]}")
+def test_the_schedule_settings_reach_every_equivariant_model(key):
+    """`build` filters by signature; the equivariant models take these through
+    `**kwargs`, and a filter that stopped at the subclass dropped them silently."""
+    assert {"nonlinearity", "use_batch_norm", "use_layer_norm", "fft_method"} <= \
+        zoo.accepted(zoo.ZOO[key].cls)
 
 
 @pytest.mark.parametrize("fn, extra", [

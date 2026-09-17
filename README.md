@@ -105,7 +105,7 @@ below -- it needs pooling on the group. See `modules/architectures.py`.
 | key           | Value             | Description                                 
 | ------------- |-------------------| ------------------------------------------------------------ |
 | `arch`        | `s3cnn`, `swscnn` or `scnn` | The architecture; see `modules/architectures.py` |
-| `fft_method`  | `full` or `delta` | Only `full` is currently implemented. Fast but not sp.-eff.  |
+| `fft_method`  | `full`            | The only transform implemented. Fast but not sp.-eff.        |
 | `n_alpha`     |  int              | Longitude resolution (usually 120 or 360)                    |
 | `n_beta`      |  int              | Latitude resolution excluding poles (usually 59 or 179)      |
 | `resolutions` |  list of ints     | List of maximum degree $l$ (band-limit) of Fourier coefficients at each layer |
@@ -113,6 +113,8 @@ below -- it needs pooling on the group. See `modules/architectures.py`.
 | `spins`       |  list of lists    | List of spins $n\in\{0,1\}$ at each layer. Both = half channels each  |
 
 ```
+from modules.equivariant import SO3UNet
+
 model = SO3UNet(arch="s3cnn",
                 fft_method="full",
                 n_alpha = 360, n_beta=179,

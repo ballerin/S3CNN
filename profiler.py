@@ -5,7 +5,7 @@ from torch.profiler import profile, ProfilerActivity, record_function, schedule
 import time
 
 from SphericalDataset import WeatherDataset
-from modules.SO3UNet import SO3UNet
+from modules.equivariant import SO3UNet
 from modules.losses import S2MSELoss
 
 if __name__ == "__main__":

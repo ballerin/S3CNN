@@ -11,10 +11,7 @@ from __future__ import annotations
 import pytest
 
 from modules.architectures import ARCHITECTURES, LEGACY_LAYER_STYLES, resolve
-from modules.MNIST_SO3 import SO3MNISTClassifier
-from modules.SO3Autoencoder import SO3Autoencoder
-from modules.SO3CNN import SO3CNN
-from modules.SO3UNet import SO3UNet
+from modules.equivariant import SO3Autoencoder, SO3CNN, SO3MNISTClassifier, SO3UNet
 from tests import models
 
 

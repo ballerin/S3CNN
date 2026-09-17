@@ -27,10 +27,7 @@ from dataclasses import dataclass, field
 from modules.CNNAutoencoder import CNNAutoencoder512
 from modules.CNNUNet import CNNUNet
 from modules.MNIST_CNN import CNNMNISTClassifier
-from modules.MNIST_SO3 import SO3MNISTClassifier
-from modules.SO3Autoencoder import SO3Autoencoder
-from modules.SO3CNN import SO3CNN
-from modules.SO3UNet import SO3UNet
+from modules.equivariant import SO3Autoencoder, SO3CNN, SO3MNISTClassifier, SO3UNet
 
 
 @dataclass(frozen=True)
@@ -289,11 +286,21 @@ def spec(experiment: str, model_type: str) -> Spec:
                          f"{known}") from None
 
 
+def accepted(cls: type) -> set[str]:
+    """Keywords `cls` takes, following `**kwargs` up to the base that names them."""
+    names = set()
+    for klass in cls.__mro__:
+        params = inspect.signature(klass.__init__).parameters.values()
+        names |= {p.name for p in params if p.kind not in (p.VAR_KEYWORD, p.VAR_POSITIONAL)}
+        if not any(p.kind == p.VAR_KEYWORD for p in params):
+            break
+    return names - {"self"}
+
+
 def build(experiment: str, model_type: str, **runtime):
     """The model for this pair, with the schedule's settings applied."""
     s = spec(experiment, model_type)
-    accepted = set(inspect.signature(s.cls.__init__).parameters)
-    kwargs = {k: v for k, v in runtime.items() if k in accepted and v is not None}
+    kwargs = {k: v for k, v in runtime.items() if k in accepted(s.cls) and v is not None}
     kwargs.update(s.kwargs)          # an entry that names a value keeps it
     return s.cls(**kwargs)
 

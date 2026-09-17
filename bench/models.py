@@ -6,9 +6,8 @@ Wigner tables are synthetic, as in `bench.ops`; loading the real ones costs
 is allocated only for the layer styles that read it, so peak memory means the
 same thing in every row.
 
-Batch norm is off everywhere: it is incompatible with the SO(3) layer styles
-(defect 10), and leaving it on for the S2 styles only would make the columns
-incomparable.
+Batch norm is off everywhere, as it was in the stored baseline, so a run stays
+comparable with `bench/baseline/models.json`.
 """
 
 from __future__ import annotations
@@ -17,8 +16,7 @@ import torch
 
 from bench.harness import Result, time_call
 from bench.ops import full_table, slice_tables
-from modules.SO3CNN import SO3CNN
-from modules.SO3UNet import SO3UNet
+from modules.equivariant import SO3CNN, SO3UNet
 
 N_ALPHA, N_BETA = 360, 179
 

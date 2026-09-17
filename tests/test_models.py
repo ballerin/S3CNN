@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import torch
 
-from modules.SO3CNN import SO3CNN
+from modules.equivariant import SO3CNN
 from tests import models
 from tests.conftest import N_ALPHA, N_BETA, relerr, tables
 
@@ -104,16 +104,46 @@ def test_pooling_needs_commensurate_grids(k, x):
 
 # ---------------------------------------------------- known-defect pinning
 
-@pytest.mark.parametrize("style", ["s3cnn", "scnn"])
-def test_batch_norm_works_with_so3_layers(style, x):
+@pytest.mark.parametrize("name", list(models.BUILDERS))
+def test_batch_norm_works_with_every_topology(name, x):
     """The SO(3) styles hand the normalisation a list of Wigner blocks, so they
-    need `FullSpectralBatchNormalization`, not the flat-layout one."""
-    n0, n1, full = tables(models.L, N_BETA)
-    out = SO3CNN(n_alpha=N_ALPHA, n_beta=N_BETA, arch=style, resolution=models.L,
-                 widths=[1, 2, 1], spins=[[0], [0, 1], [0]], use_batch_norm=True,
-                 nonlinearity="leaky_relu", wigner_n0=n0, wigner_n1=n1,
-                 f_wigner=full).eval()(x)
-    assert torch.isfinite(torch.view_as_real(out)).all()
+    need `FullSpectralBatchNormalization`, not the flat-layout one. Before M2
+    the classifier still used a third class and crashed on the first batch."""
+    torch.manual_seed(models.SEED)
+    m = models.BUILDERS[name]()
+    for block in m.modules():
+        if hasattr(block, "batchnorm"):
+            break
+    kwargs = dict(n_alpha=N_ALPHA, n_beta=N_BETA, arch=m.arch, use_batch_norm=True,
+                  spins=m.spins, widths=m.widths,
+                  wigner_n0=m.wigner_n0, wigner_n1=m.wigner_n1,
+                  f_wigner=tables(models.L, N_BETA)[2])
+    kwargs["resolution" if isinstance(m.resolutions, int) else "resolutions"] = m.resolutions
+    m = type(m)(**kwargs)
+    m.train()(x)
+    out = m.eval()(x)
+    out = torch.view_as_real(out) if out.is_complex() else out
+    assert torch.isfinite(out).all()
+
+
+@pytest.mark.parametrize("name", list(models.BUILDERS))
+def test_every_block_uses_the_requested_nonlinearity(name):
+    """The classifier used to build a leaky ReLU whatever it was asked for."""
+    from modules.architectures import resolve
+    m = models.build(name)
+    for sigma in resolve(m.arch).sigmas:
+        torch.manual_seed(models.SEED)
+        built = models.BUILDERS[name]().__class__
+        kwargs = dict(n_alpha=N_ALPHA, n_beta=N_BETA, arch=m.arch, nonlinearity=sigma,
+                      use_batch_norm=False, spins=m.spins, widths=m.widths,
+                      wigner_n0=m.wigner_n0, wigner_n1=m.wigner_n1,
+                      f_wigner=tables(models.L, N_BETA)[2])
+        kwargs["resolution" if isinstance(m.resolutions, int) else "resolutions"] = m.resolutions
+        want = {"relu": "WeightedReLU", "leaky_relu": "WeightedLeakyReLU",
+                "magnitude": "MagnitudeNonlinearity",
+                "phase_collapse": "PhaseCollapseNonlinearity"}[sigma]
+        got = {type(b.sigma).__name__ for b in built(**kwargs).modules() if hasattr(b, "sigma")}
+        assert got == {want}
 
 
 def test_spins_may_be_bare_ints():

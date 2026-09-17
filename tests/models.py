@@ -1,19 +1,16 @@
 """Small assembled models, one per architecture and layer style.
 
 Sizes are the smallest the constructors accept, so the suite runs in seconds.
-Every model is built with `use_batch_norm=False`: batch norm is incompatible
-with the SO(3) layer styles (defect 10), and pinning that separately keeps the
-rest of the tests readable.
+Every model is built with `use_batch_norm=False`, which is what the goldens
+were pinned with; `test_models.test_batch_norm_works_with_every_topology`
+covers the normalised path.
 """
 
 from __future__ import annotations
 
 import torch
 
-from modules.MNIST_SO3 import SO3MNISTClassifier
-from modules.SO3Autoencoder import SO3Autoencoder
-from modules.SO3CNN import SO3CNN
-from modules.SO3UNet import SO3UNet
+from modules.equivariant import SO3Autoencoder, SO3CNN, SO3MNISTClassifier, SO3UNet
 from tests.conftest import L, N_ALPHA, N_BETA, tables
 
 SEED = 0
