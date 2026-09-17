@@ -70,12 +70,13 @@ def test_roundtrip(n, n_beta, tol):
     assert _roundtrip_error(n, n_beta) < tol
 
 
-@pytest.mark.xfail(strict=True, reason="defect 2: quadrature is only O(n_beta^-2)")
+@pytest.mark.xfail(strict=True, reason="the quadrature is only O(n_beta^-2)")
 def test_roundtrip_is_spectrally_accurate():
     """A correct quadrature is exact on band-limited data at any oversampling.
 
     The shipped one converges as O(n_beta^-2) instead, so reaching single
-    precision would need thousands of latitudes.  Goes green when M6 lands.
+    precision would need thousands of latitudes.  Goes green when the
+    quadrature is replaced.
     """
     assert _roundtrip_error(0, 4 * (L + 1)) < 1e-6
 
@@ -86,7 +87,7 @@ def test_roundtrip_convergence_is_second_order():
     assert 3.5 < ratio < 4.5
 
 
-@pytest.mark.xfail(strict=True, reason="defect 2: L = n_beta is rank-deficient")
+@pytest.mark.xfail(strict=True, reason="L = n_beta is rank-deficient")
 @pytest.mark.parametrize("n", SPINS)
 def test_roundtrip_at_production_band_limit(n):
     """Every shipped ERA5 and MNIST model sets L = n_beta."""

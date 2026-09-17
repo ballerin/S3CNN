@@ -78,14 +78,14 @@ ARCHITECTURES = {
         reference="Esteves et al. 2020, 2023"),
 }
 
-#: What the same three architectures were called before M2.  Kept so that
+#: What the same three architectures used to be called.  Kept so that
 #: checkpoints and schedules written against the old vocabulary still resolve;
 #: `full_so3` in particular was the sCNN path, not ours.
 LEGACY_LAYER_STYLES = {"full_so3": "scnn", "so3": "s3cnn", "spins": "swscnn"}
 
 
 def resolve(arch: str | None = None, layer_style: str | None = None) -> Architecture:
-    """The `Architecture` named by `arch`, or by the pre-M2 `layer_style`."""
+    """The `Architecture` named by `arch`, or by the older `layer_style`."""
     if arch is not None and layer_style is not None:
         raise ValueError("Pass arch or layer_style, not both; "
                          f"layer_style={layer_style!r} is the old name for "

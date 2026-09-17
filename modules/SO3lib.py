@@ -31,6 +31,25 @@ def beta_exponent(beta, mat):
     """
     return scipy.linalg.expm(beta * mat) 
 
+def contract(equation: str, *operands):
+    """`einsum(equation, *operands)` where only the last operand is complex.
+
+    The Wigner tables are real (see CONVENTIONS.md), so a real table against a
+    complex signal is two real multiplies rather than four, and the table costs
+    half the memory. `equation` is written for the all-complex case; the real
+    path threads the (re, im) axis through as `c`. Tables that are still
+    complex fall back to the plain einsum, so a caller may pass either.
+    """
+    *tables, x = operands
+    if any(t.is_complex() for t in tables):
+        return torch.einsum(equation, *operands)
+    inputs, out = equation.split("->")
+    inputs = inputs.split(",")
+    inputs[-1] += "c"
+    real = torch.einsum(",".join(inputs) + "->" + out + "c", *tables, torch.view_as_real(x))
+    return torch.view_as_complex(real.contiguous())
+
+
 def q_n(l,n):
     """Ladder coefficient sqrt((l-n)(l+n+1)) of the J_y recursion."""
     return math.sqrt((l-n)*(l+n+1))

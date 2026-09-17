@@ -135,6 +135,7 @@ def test_the_entry_points_reject_an_unknown_pair_before_touching_data(fn, extra)
 
 
 def test_the_learning_rate_can_be_set_from_a_schedule():
-    """It is untuned since M1; a sweep needs it as a key, not an edit."""
+    """It is untuned since the initialisation changed; a sweep needs it as a
+    key, not an edit."""
     from utils.params import accepted
     assert "lr" in accepted(run_training.run_training)

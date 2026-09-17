@@ -42,6 +42,9 @@ def _run_job(params: dict) -> None:
     # Imported here rather than at module scope: the parent must not touch CUDA.
     from run_testing import run_testing
     from run_training import run_training
+    from utils.precision import enable_tf32
+
+    enable_tf32()
 
     {"train": run_training, "test": run_testing}[params["operation"]](
         gpu_id=0, params=params)

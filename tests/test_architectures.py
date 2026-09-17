@@ -1,7 +1,7 @@
 """The three architectures as a table rather than as branches.
 
 What is pinned here is the vocabulary: which architecture each preset names,
-which nonlinearities it admits, and what the pre-M2 `layer_style` strings map
+which nonlinearities it admits, and what the older `layer_style` strings map
 onto.  The last of those is worth a test of its own -- `full_so3` was the sCNN
 path and reads like it ought to be ours.
 """
@@ -62,7 +62,7 @@ SIGMAS = ["leaky_relu", "relu", "magnitude", "phase_collapse"]
 @pytest.mark.parametrize("arch", list(ARCHITECTURES))
 @pytest.mark.parametrize("sigma", SIGMAS)
 def test_a_model_takes_exactly_the_nonlinearities_its_architecture_admits(arch, sigma):
-    """Before M2 the six inadmissible pairs built a model with an empty
+    """The six inadmissible pairs once built a model with an empty
     `nonlinearities` list and raised `IndexError` inside `forward`."""
     spec = resolve(arch)
     build = lambda: SO3CNN(arch=arch, nonlinearity=sigma, resolution=models.L,

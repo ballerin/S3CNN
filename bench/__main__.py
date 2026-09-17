@@ -28,6 +28,8 @@ def _parse(argv):
                    help="compare against a previous JSON and fail on a regression")
     p.add_argument("--tol", type=float, default=0.05,
                    help="fraction slower than the baseline that counts as a regression")
+    p.add_argument("--no-tf32", action="store_true",
+                   help="full fp32 matmuls; the default follows S3CNN_TF32")
     gpu_utils.add_arguments(p)
     return p.parse_args(argv)
 
@@ -37,6 +39,9 @@ def main(argv=None):
     gpu = gpu_utils.from_args(args)
 
     import torch  # after the claim, so it sees one device
+
+    from utils.precision import enable_tf32
+    tf32 = enable_tf32(False if args.no_tf32 else None)
 
     from bench import data, harness, models, ops
     suite = {"ops": ops, "models": models, "data": data}[args.suite]
@@ -52,7 +57,7 @@ def main(argv=None):
 
     baseline = harness.load(args.baseline) if args.baseline else None
     print(f"{run.device} {run.gpu_uuid} | {run.bandwidth_gb_s:.0f} GiB/s "
-          f"| {run.co_tenants} other process(es)\n")
+          f"| {run.co_tenants} other process(es) | tf32 {'on' if tf32 else 'off'}\n")
     print(harness.to_markdown(run, baseline))
 
     # The lock is advisory; another user can still land on the device mid-run.

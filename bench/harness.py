@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass, field
 import torch
 
 BYTES_COMPLEX64 = 8
+BYTES_FLOAT32 = 4
 
 
 @dataclass
@@ -168,10 +169,10 @@ def to_markdown(run: Run, baseline: Run | None = None) -> str:
         head += ["roofline", "of peak"]
     if baseline is not None:
         head.append("vs base")
-    prev = {(r["name"], json.dumps(r["params"], sort_keys=True)): r["ms"]
+    prev = {_key(r["name"], r["params"]): (r["ms"], r["params"].get("params"))
             for r in (baseline.results if baseline else [])}
 
-    rows = []
+    rows, resized = [], []
     for r in run.results:
         row = [f"{r.name} {_params(r.params)}", f"{r.ms:.2f}", f"{r.ms_std:.2f}",
                _fmt_mem(r.peak_mem)]
@@ -179,14 +180,19 @@ def to_markdown(run: Run, baseline: Run | None = None) -> str:
             floor = r.roofline_ms(run.bandwidth_gb_s)
             row += [f"{floor:.2f}", f"{floor / r.ms:.1%}"]
         if baseline is not None:
-            was = prev.get((r.name, json.dumps(r.params, sort_keys=True)))
-            row.append("--" if was is None else f"{r.ms / was - 1:+.1%}")
+            was = prev.get(_key(r.name, r.params))
+            row.append("--" if was is None else f"{r.ms / was[0] - 1:+.1%}")
+            if was is not None and was[1] not in (None, r.params.get("params")):
+                resized.append(f"{r.name}: {was[1]} -> {r.params['params']} parameters")
         rows.append(row)
 
     width = [max(len(h), *(len(row[i]) for row in rows)) for i, h in enumerate(head)]
     out = [" | ".join(h.ljust(w) for h, w in zip(head, width)),
            "-|-".join("-" * w for w in width)]
     out += [" | ".join(c.ljust(w) for c, w in zip(row, width)) for row in rows]
+    if resized:
+        out += ["", "The model itself changed since the baseline:"]
+        out += ["  " + line for line in dict.fromkeys(resized)]
     return "\n".join(out)
 
 
@@ -194,12 +200,20 @@ def _params(p: dict) -> str:
     return " ".join(f"{k}={v}" for k, v in p.items())
 
 
+def _key(name: str, params: dict):
+    """What makes two measurements comparable: the case and the knobs it was
+    swept over. `params` is the model's parameter count -- a property of the
+    model, not a knob -- and it moves whenever the architecture is fixed, which
+    would otherwise silently drop every row from the comparison."""
+    return name, json.dumps({k: v for k, v in params.items() if k != "params"},
+                            sort_keys=True)
+
+
 def regressions(run: Run, baseline: Run, tol: float) -> list[str]:
-    prev = {(r["name"], json.dumps(r["params"], sort_keys=True)): r["ms"]
-            for r in baseline.results}
+    prev = {_key(r["name"], r["params"]): r["ms"] for r in baseline.results}
     out = []
     for r in run.results:
-        was = prev.get((r.name, json.dumps(r.params, sort_keys=True)))
+        was = prev.get(_key(r.name, r.params))
         if was and r.ms > was * (1 + tol):
             out.append(f"{r.name} {_params(r.params)}: {was:.2f} -> {r.ms:.2f} ms")
     return out

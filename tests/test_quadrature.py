@@ -1,10 +1,10 @@
 """The quadrature seam.
 
-The shipped rule is not accurate at the band-limit the models use -- that is
-defect 2, pinned by the strict xfails in `test_transforms.py` and left to M6.
-What is pinned here is the seam itself: that the default rule is exactly the
-arithmetic the transforms used before it existed, and that another rule can be
-dropped in without touching them.
+The shipped rule is not accurate at the band-limit the models use, which the
+strict xfails in `test_transforms.py` hold open. What is pinned here is the
+seam itself: that the default rule is exactly the arithmetic the transforms
+used before it existed, and that another rule can be dropped in without
+touching them.
 """
 
 from __future__ import annotations
@@ -62,8 +62,8 @@ class Doubled(quadrature.Quadrature):
 
 @pytest.mark.parametrize("n", [0, 1])
 def test_a_rule_that_cannot_factorise_still_plugs_into_s2_analysis(n):
-    """What M6 needs: `pinv(D)` is not diagonal in beta, so it arrives as a
-    whole table and the transform contracts it directly."""
+    """A pseudo-inverse analysis operator is not diagonal in beta, so it
+    arrives as a whole table and the transform contracts it directly."""
     n0, n1, _ = tables(L, N_BETA)
     f = torch.randn(2, 1, N_ALPHA, N_BETA, dtype=torch.complex64)
     shipped = S2FFT(L=L, n=n)(f, n0, n1)

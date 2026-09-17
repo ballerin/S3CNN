@@ -2,8 +2,8 @@
 
 These are contract tests, not accuracy tests: shapes, purity, gradients,
 equivariance of the whole stack, and a set of golden outputs. The goldens are
-pinned against the code as shipped, so any milestone that changes the numbers
-has to say so out loud.
+pinned against the code as shipped, so any change that moves the numbers has to
+say so out loud.
 """
 
 from __future__ import annotations
@@ -102,13 +102,13 @@ def test_pooling_needs_commensurate_grids(k, x):
     assert relerr(got, want) > 1e-5
 
 
-# ---------------------------------------------------- known-defect pinning
+# ------------------------------------------------------ known-bug pinning
 
 @pytest.mark.parametrize("name", list(models.BUILDERS))
 def test_batch_norm_works_with_every_topology(name, x):
     """The SO(3) styles hand the normalisation a list of Wigner blocks, so they
-    need `FullSpectralBatchNormalization`, not the flat-layout one. Before M2
-    the classifier still used a third class and crashed on the first batch."""
+    need `FullSpectralBatchNormalization`, not the flat-layout one. The
+    classifier once used a third class and crashed on the first batch."""
     torch.manual_seed(models.SEED)
     m = models.BUILDERS[name]()
     for block in m.modules():
@@ -174,9 +174,8 @@ def test_no_parameter_is_dead(x):
 def test_output_matches_golden(name, x, request):
     """Pinned against the code as shipped, at seed `models.SEED`.
 
-    Kernels are currently constant (defect 1), so these do not yet depend on
-    the seed. Fixing that changes every golden here, on purpose: regenerate
-    with `pytest --update-goldens` and say so in the commit.
+    Regenerate with `pytest --update-goldens` when a change is meant to move
+    them, and say in the commit why they moved.
     """
     if request.config.getoption("--update-goldens"):
         pytest.skip("regenerating")

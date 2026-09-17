@@ -64,7 +64,9 @@ returns the coefficient itself.
 
 ## Wigner tables
 
-`d^l_{mn}(beta)` is real, and is stored as such per order:
+`d^l_{mn}(beta)` is real, and is stored as such -- real fp32, not complex64,
+which halves both the bytes and the multiply count (`SO3lib.contract` threads
+the (re, im) axis through the contraction). One table per order:
 
 | table | file | contents |
 | ----- | ---- | -------- |
@@ -73,9 +75,13 @@ returns the coefficient itself.
 | spin 1 | `SLICE_WIGNER_N1_<n_beta>_<l_max>.list` | column `n = 1`, from `l = 1` |
 
 The slices are what the S2 transforms need; only the group path reads the full
-table. Tables are model buffers, so they move with `.to(device)` but are
-excluded from the `state_dict` (`persistent=False`). `modules/precomp.py` also
-accepts the older `<kind>_<n_beta>.list` names.
+table. Each table is packed into **one** buffer (`precomp.Packed`), with
+`tables[l]` a view into it: the orders used to be `L+1` separate buffers
+rebuilt into a Python list on every call, and the ragged full table used
+`torch.nested`, a prototype API that blocks `torch.compile`. Buffers move with
+`.to(device)` but stay out of the `state_dict` (`persistent=False`).
+`modules/precomp.py` also accepts the older `<kind>_<n_beta>.list` names, and
+converts a complex table on load.
 
 ## References
 

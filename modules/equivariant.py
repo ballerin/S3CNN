@@ -167,28 +167,33 @@ class EquivariantNetwork(nn.Module):
         self.needs_1_spin = any(1 in s for s in self.spins)
         self.wigner_n0 = self._register("SLICE_WIGNER_N0", wigner_n0, l_max) if self.needs_0_spin else None
         self.wigner_n1 = self._register("SLICE_WIGNER_N1", wigner_n1, l_max) if self.needs_1_spin else None
-        if self.spec.lifts:
-            full = f_wigner if f_wigner is not None else precomp.load("FULL_WIGNER", n_beta, l_max)
-            self.register_buffer("wigner_full", torch.nested.nested_tensor(
-                [m.requires_grad_(False) for m in full]), persistent=False)
+        self.wigner_full = self._register("FULL_WIGNER", f_wigner, l_max) if self.spec.lifts else None
 
-    def _register(self, kind: str, table: list | None, l_max: int) -> list:
-        table = precomp.load(kind, self.n_beta, l_max) if table is None \
-            else [m.requires_grad_(False) for m in table]
-        prefix = "wigner_n0_" if kind.endswith("N0") else "wigner_n1_"
-        for i, m in enumerate(table):
-            self.register_buffer(prefix + str(i), m, persistent=False)
-        return table
+    #: Buffer name per table kind; the layout lives beside it, the bytes in the buffer.
+    BUFFERS = {"SLICE_WIGNER_N0": "wigner_n0_packed",
+               "SLICE_WIGNER_N1": "wigner_n1_packed",
+               "FULL_WIGNER": "wigner_full_packed"}
 
-    def get_buffered_slice_wigner(self, n: int = 1) -> list | None:
-        """The spin-`n` column of the Wigner table on the current device, or None."""
-        table = self.wigner_n1 if n == 1 else self.wigner_n0
-        if table is None:
+    def _register(self, kind: str, table: list | None, l_max: int) -> precomp.Packed:
+        """Pack one table into a single buffer, out of the state_dict."""
+        table = precomp.load(kind, self.n_beta, l_max) if table is None else table
+        packed = precomp.Packed.build(table)
+        self.register_buffer(self.BUFFERS[kind], packed.packed, persistent=False)
+        return packed
+
+    def _tables(self, kind: str, layout) -> precomp.Packed | None:
+        """The packed table on whatever device the module is on now."""
+        if layout is None:
             return None
-        return [self.get_buffer(f"wigner_n{n}_{i}") for i in range(len(table))]
+        return layout.on(self.get_buffer(self.BUFFERS[kind]))
+
+    def get_buffered_slice_wigner(self, n: int = 1):
+        """The spin-`n` column of the Wigner table on the current device, or None."""
+        kind = "SLICE_WIGNER_N1" if n == 1 else "SLICE_WIGNER_N0"
+        return self._tables(kind, self.wigner_n1 if n == 1 else self.wigner_n0)
 
     def get_buffered_full_wigner(self):
-        return self.get_buffer("wigner_full")
+        return self._tables("FULL_WIGNER", self.wigner_full)
 
     def lifted(self, i: int) -> bool:
         """Does block `i` consume an SO(3) signal? Only scnn keeps one between blocks."""

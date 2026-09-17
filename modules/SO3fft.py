@@ -6,7 +6,8 @@ Algorithm: Kostelec & Rockmore 2008, sec. 3.
 
 import numpy as np
 import torch
-from .SO3lib import from_index_to_beta
+from . import precomp
+from .SO3lib import contract, from_index_to_beta
 from .quadrature import resolve as resolve_quadrature
 
 class S2_to_SO3(torch.nn.modules.Module):
@@ -216,27 +217,23 @@ class S2FFT(torch.nn.modules.Module):
         f_tilde = torch.flip(f_tilde, dims=(-2,)) #m needs to be taken in negative order later
 
         rule = self.quadrature
-        # A diagonal rule is contracted in pieces; anything else hands over the
-        # whole table. See `modules/quadrature.py`.
-        aa = rule.node_weights(n_beta, device=f.device) if rule.diagonal else None
 
-        # [batch, channels, l+m]
+        if rule.diagonal:
+            # One contraction over the dense (m, l) block, quadrature already
+            # folded in, instead of a Python loop over the orders.
+            A = precomp.analysis_table(rule, d_matrices, self.L, n, n_beta)
+            band = f_tilde[..., maf-self.L:maf+self.L+1, :].to(f.device)
+            rect = contract("mlb,...mb->...ml", A, band)
+            return precomp.rect_index(self.L, f.device).to_flat(rect)
+
+        # A rule that does not factorise hands over one table per order.
         f_hat = torch.zeros((batch_size, n_features, self.L*(self.L+2)+1),
-                            dtype=torch.complex64, device=f.device) 
-
+                            dtype=torch.complex64, device=f.device)
         for l in range(0 if n == 0 else 1, self.L+1):
             ww = d_matrices[l if n == 0 else l-1]
             ff = f_tilde[...,maf-l:maf+l+1,:].to(f.device)
-            if rule.diagonal:
-                f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1] = rule.order_scale(l) \
-                    * torch.einsum("b,bm,...mb->...m",aa,ww,ff)
-            else:
-                f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1] = torch.einsum(
-                    "bm,...mb->...m", rule.operator(ww, l, n_beta), ff)
-
-        if rule.diagonal:
-            f_hat *= rule.measure(n_beta) # Quadrature length, n_beta+1 intervals
-        
+            f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1] = contract(
+                "bm,...mb->...m", rule.operator(ww, l, n_beta), ff)
         return f_hat
 
     def forward(self, f:torch.Tensor, d_matrices_n0, d_matrices_n1) -> torch.Tensor:
@@ -334,24 +331,17 @@ class S2iFFT(torch.nn.modules.Module):
         # The part that does not get filled inside this module is zero padding
         f = torch.zeros((batch_size, n_features, self.n_alpha, self.n_beta),
                         dtype=torch.complex64, device=f_hat.device)
-        
-        mid = self.n_alpha//2
-        
-        if n == 0:
-            for l in range(0,self.L+1):
-                xx = f_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1]
-                ww = d_matrices[l]
-                # It is ok for m to be negative, as the signal is periodic
-                f[...,mid-l:mid+l+1, :] += torch.einsum("...m,bm->...mb",xx,ww)
 
-        elif n == 1:
-            for l in range(1,self.L+1):
-                xx = f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1]
-                ww = d_matrices[l-1]
-                #It is ok for m to be negative, as the signal is periodic
-                f[...,mid-l:mid+l+1, :] += torch.einsum("...m,bm->...mb",xx,ww)
-        else:
+        mid = self.n_alpha//2
+
+        if n not in (0, 1):
             raise Exception("Not implemented")
+
+        # Sum over the orders in one contraction against the dense (m, l) block.
+        # It is ok for m to be negative, as the signal is periodic.
+        rect = precomp.rect_index(self.L, f_hat.device).from_flat(f_hat)
+        D = precomp.synthesis_table(d_matrices, self.L, n)
+        f[..., mid-self.L:mid+self.L+1, :] = contract("mlb,...ml->...mb", D, rect)
         
         f = torch.fft.fftshift(f, dim=-2)
         f = torch.fft.fft(f, dim=-2, norm="ortho") # [batch, feature_in, alpha, beta, complex]
@@ -449,20 +439,18 @@ class SO3FFT(torch.nn.modules.Module):
         x_hat = []
 
         rule = self.quadrature
-        # Materialising the table here would scale the whole Wigner table on
-        # every call, so a diagonal rule stays factorised.
-        aa = rule.node_weights(n_beta, device=x.device) if rule.diagonal else None
 
         for l in range(0,self.L+1):
 
             xx = x[...,maf_a-l:maf_a+l+1,:,maf_g-l:maf_g+l+1]
 
-            if rule.diagonal:
-                x_hat.append(rule.measure(n_beta) * rule.order_scale(l) *
-                            torch.einsum("b,bmn,...mbn->...mn", aa, d_matrices[l], xx))
-            else:
-                x_hat.append(torch.einsum("bmn,...mbn->...mn",
-                                          rule.operator(d_matrices[l], l, n_beta), xx))
+            # [beta, m, n] -> [m, beta, n], so it broadcasts over batch and
+            # channels against the grid. A real table costs half the bytes of a
+            # complex one, but only if it is not fed to einsum: the (re, im)
+            # axis einsum needs makes this contraction 2-5x slower than the
+            # broadcast multiply below. See docs/measurements.md.
+            A = rule.operator(d_matrices[l], l, n_beta).permute(1, 0, 2)
+            x_hat.append((xx * A).sum(dim=-2))
 
         return x_hat #List of mn matrices indexed by l
 
@@ -541,10 +529,12 @@ class SO3iFFT(torch.nn.modules.Module):
                         dtype=torch.complex64, device=x_hat[0].device)
         
         for l in range(0,self.L+1):
-            ww = d_matrices[l]
-            xx = x_hat[l]
-                
-            x[..., mid_a-l:mid_a+l+1, :, mid_g-l:mid_g+l+1] += torch.einsum("xfmn,bmn->xfmbn",xx,ww) 
+            # The same broadcast as the analysis, in reverse: [b, m, n] becomes
+            # [m, b, n] and the coefficients gain the beta axis.
+            ww = d_matrices[l].permute(1, 0, 2)
+            xx = x_hat[l].unsqueeze(-2)
+
+            x[..., mid_a-l:mid_a+l+1, :, mid_g-l:mid_g+l+1] += xx * ww
 
         x = torch.fft.fftshift(x, dim=(-3,-1))
         # alpha uses the same convention as S2iFFT; gamma is left unnormalised so

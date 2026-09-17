@@ -114,7 +114,7 @@ def run_training(gpu_id: int, # gpu id to use
     - batch_size: int, size of the batches for training
     - lr: float, Adam learning rate. NOT TUNED for the current code: 1e-3 was
       chosen when the convolution kernels were initialised as a real constant.
-      M1 replaced that with complex Glorot, which raises the output RMS at
+      Complex Glorot initialisation replaced that and raises the output RMS at
       initialisation 40-200x, and the rate has not been re-tuned since. Sweep
       it before comparing against published numbers, then fix the default here.
     - use_batch_norm: bool, whether to use batch normalization

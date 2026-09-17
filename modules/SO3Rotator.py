@@ -3,7 +3,7 @@ import torch
 import pickle
 
 from .SO3fft import S2FFT, S2iFFT
-from .SO3lib import random_euler_zyz
+from .SO3lib import contract, random_euler_zyz
 
 class SO3Rotator():
     """
@@ -112,22 +112,18 @@ class SO3Rotator():
                 phase_alpha = torch.exp(-1j * m * alpha)
                 phase_gamma = torch.exp(-1j * m * gamma)
                 x_hat_rot[...,(l-1)*(l+1)+1:(l)*(l+2)+1] = \
-                    torch.einsum("...s,ms,m->...m",
-                                x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1] * phase_gamma,
-                                self.d_matrices_full[l][beta_index],
-                                phase_alpha,
-                                )
+                    contract("ms,...s->...m",
+                             self.d_matrices_full[l][beta_index],
+                             x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1] * phase_gamma) * phase_alpha
         else:
             for l in range(1,self.FFT_L+1):
                 m = torch.arange(-l, l+1, device=self.device)
                 phase_alpha = torch.exp(-1j * m * alpha)
                 phase_gamma = torch.exp(-1j * m * gamma)
                 x_hat_rot[...,(l-1)*(l+1)+1:(l)*(l+2)+1] = \
-                    torch.einsum("...s,sm,m->...m",
-                                x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1] * phase_gamma,
-                                self.d_matrices_full[l][beta_index],
-                                phase_alpha,
-                                )
+                    contract("sm,...s->...m",
+                             self.d_matrices_full[l][beta_index],
+                             x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1] * phase_gamma) * phase_alpha
 
 
         return x_hat_rot
@@ -144,15 +140,15 @@ class SO3Rotator():
         if positive_beta > 0:
             for l in range(1,self.FFT_L+1):
                 x_hat_rot[...,(l-1)*(l+1)+1:(l)*(l+2)+1] = \
-                    torch.einsum("...s,ms->...m",
-                                x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1],
-                                self.d_matrices_full[l][beta_index])
+                    contract("ms,...s->...m",
+                             self.d_matrices_full[l][beta_index],
+                             x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1])
         else:
             for l in range(1,self.FFT_L+1):
                 x_hat_rot[...,(l-1)*(l+1)+1:(l)*(l+2)+1] = \
-                    torch.einsum("...s,sm->...m",
-                                x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1],
-                                self.d_matrices_full[l][beta_index])
+                    contract("sm,...s->...m",
+                             self.d_matrices_full[l][beta_index],
+                             x_hat[...,(l-1)*(l+1)+1:(l)*(l+2)+1])
 
 
         return x_hat_rot

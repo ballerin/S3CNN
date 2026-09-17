@@ -12,6 +12,8 @@ from __future__ import annotations
 import torch
 
 from bench.harness import BYTES_COMPLEX64 as CX
+from bench.harness import BYTES_FLOAT32 as RE
+from modules.precomp import Packed
 from bench.harness import Result, time_call
 from modules.SO3ConvLayer import SO3Conv, SpinSO3Conv
 from modules.SO3fft import S2FFT, S2iFFT, SO3FFT, SO3iFFT
@@ -35,16 +37,20 @@ def _so3_spectrum(L, c, batch, device):
 
 
 def full_table(L, n_beta, device):
-    """The d^l blocks the SO(3) transforms index; 11.1 GB at L = 179."""
+    """The d^l blocks the SO(3) transforms index; 5.57 GB real at L = 179.
+
+    Real fp32, as the tables are: `d^l` is real by construction, so
+    synthesising complex here would measure twice the traffic the code moves.
+    """
     return [torch.randn(n_beta, 2 * l + 1, 2 * l + 1,
-                        dtype=torch.complex64, device=device) for l in range(L + 1)]
+                        dtype=torch.float32, device=device) for l in range(L + 1)]
 
 
 def slice_tables(L, n_beta, device):
     """Columns n = 0 and n = 1 of each block, which is all the S2 path reads."""
-    n0 = [torch.randn(n_beta, 2 * l + 1, dtype=torch.complex64, device=device)
+    n0 = [torch.randn(n_beta, 2 * l + 1, dtype=torch.float32, device=device)
           for l in range(L + 1)]
-    n1 = [torch.randn(n_beta, 2 * l + 1, dtype=torch.complex64, device=device)
+    n1 = [torch.randn(n_beta, 2 * l + 1, dtype=torch.float32, device=device)
           for l in range(1, L + 1)]
     return n0, n1
 
@@ -53,8 +59,9 @@ def _sizes(L, n_beta, c, batch):
     a = _angles(L)
     blocks = sum((2 * l + 1) ** 2 for l in range(L + 1))
     return dict(
-        table_full=blocks * n_beta * CX,
-        table_slice=(L + 1) ** 2 * n_beta * CX,
+        # The tables are real, so they move half the bytes a complex one would.
+        table_full=blocks * n_beta * RE,
+        table_slice=(L + 1) ** 2 * n_beta * RE,
         spec_so3=batch * c * blocks * CX,
         spec_s2=batch * c * (L + 1) ** 2 * CX,
         grid_so3=batch * c * a * n_beta * a * CX,
@@ -67,7 +74,7 @@ def cases(size: str, batch: int, iters: int, only: str | None = None):
     L, n_beta, channels = SIZES[size]
     a = _angles(L)
     dev = torch.device("cuda")
-    full = torch.nested.nested_tensor(full_table(L, n_beta, dev))
+    full = Packed.build(full_table(L, n_beta, dev))
     n0, n1 = slice_tables(L, n_beta, dev)
     slices = dict(d_matrices_n0=n0, d_matrices_n1=n1)
 

@@ -10,7 +10,7 @@
  "results": [
   {
    "suite": "models",
-   "name": "unet_so3.forward",
+   "name": "unet_s3cnn.forward",
    "params": {
     "B": 1,
     "params": 4277370
@@ -22,7 +22,7 @@
   },
   {
    "suite": "models",
-   "name": "unet_so3.fwd+bwd",
+   "name": "unet_s3cnn.fwd+bwd",
    "params": {
     "B": 1,
     "params": 4277370
@@ -34,7 +34,7 @@
   },
   {
    "suite": "models",
-   "name": "unet_spins.forward",
+   "name": "unet_swscnn.forward",
    "params": {
     "B": 1,
     "params": 4163443
@@ -46,7 +46,7 @@
   },
   {
    "suite": "models",
-   "name": "unet_spins.fwd+bwd",
+   "name": "unet_swscnn.fwd+bwd",
    "params": {
     "B": 1,
     "params": 4163443
@@ -58,7 +58,7 @@
   },
   {
    "suite": "models",
-   "name": "cnn_so3.forward",
+   "name": "cnn_s3cnn.forward",
    "params": {
     "B": 1,
     "params": 648008
@@ -70,7 +70,7 @@
   },
   {
    "suite": "models",
-   "name": "cnn_so3.fwd+bwd",
+   "name": "cnn_s3cnn.fwd+bwd",
    "params": {
     "B": 1,
     "params": 648008
@@ -82,7 +82,7 @@
   },
   {
    "suite": "models",
-   "name": "cnn_spins.forward",
+   "name": "cnn_swscnn.forward",
    "params": {
     "B": 1,
     "params": 9012259
@@ -94,7 +94,7 @@
   },
   {
    "suite": "models",
-   "name": "cnn_spins.fwd+bwd",
+   "name": "cnn_swscnn.fwd+bwd",
    "params": {
     "B": 1,
     "params": 9012259
