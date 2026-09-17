@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from .SO3lib import from_index_to_beta, process_n, compute_spins
+from .precomp import order_weights
 
 class WeightedReLU(nn.Module):
     """ReLU on the real and imaginary parts after a learned complex affine map."""
@@ -590,12 +591,16 @@ class FullSpectralLayerNormalization(nn.Module):
         Normalizes the input in the spectral domain.
 
         Args:
-            x (list of torch.Tensor): List of tensors for each order, ordered by l starting from l=0.
-                    shape of each tensor: [batch, features, m, n]
+            x: either the packed spectrum `[batch, features, coefficients]`, or a
+                list of tensors for each order, ordered by l starting from l=0,
+                each `[batch, features, m, n]`.
 
         Returns:
-            list of torch.Tensor: Normalized tensors.
+            The same form as the input, normalized.
         """
+        if isinstance(x, torch.Tensor):
+            return self._packed(x)
+
         # Recall that data is a list ordered by l, and each element has shape [batch, features, m, n]
 
         # The mean is the coefficient x^0_{00} for spin 0 features, and structurally 0
@@ -629,6 +634,30 @@ class FullSpectralLayerNormalization(nn.Module):
             y.append(y_l / torch.sqrt(channels_var+self.EPS).view(-1, 1, 1, 1))
 
         return y
+
+    def _packed(self, x):
+        """The same normalisation over the packed spectrum.
+
+        Per order this was two passes over the coefficients -- one to sum the
+        variance, one to divide -- each a kernel launch of its own, so a layer
+        spent hundreds of them on a handful of arithmetic. Packed, the sum is
+        one weighted reduction and the division is one elementwise pass.
+        """
+        weights = order_weights(x.size(-1), x.device)
+        var = torch.einsum("bct,t->b", x.real * x.real + x.imag * x.imag, weights)
+        var = var / self.nfeatures
+
+        if self.has_spin0:
+            # The mean is the l = 0 coefficient, and belongs to the spin-0 half:
+            # subtracting it from spin-1 features is not equivariant.
+            spin0 = self.nfeatures // 2 if self.has_spin1 else self.nfeatures
+            mean = x[:, :spin0, 0].mean(dim=1)
+            correction = torch.zeros_like(x[:, :, :1])
+            correction[:, :spin0] = mean.view(-1, 1, 1)
+            x = torch.cat((x[:, :, :1] - correction, x[:, :, 1:]), dim=-1)
+
+        return x / torch.sqrt(var + self.EPS).view(-1, 1, 1)
+
 
 class SpinSpectralBatchNormalization(nn.Module):
     """

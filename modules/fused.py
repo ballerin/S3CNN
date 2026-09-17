@@ -42,21 +42,31 @@ def slab(n_beta: int, n_alpha: int, n_gamma: int, channels: int, batch: int = 1)
 
 
 class Orders:
-    """The lifted coefficients, order by order.
+    """The lifted coefficients, in whichever form the caller has them.
 
     A `list` of blocks is one already in hand. A convolution and its input is
     the same thing unevaluated: each order is computed when the synthesis asks
     for it and dropped straight after, so the lifted signal -- which is several
-    times the size of what goes into the convolution -- never accumulates.
+    times the size of what goes into the convolution -- never accumulates. One
+    packed buffer is the third form, which is what the kernel reads and what a
+    normalisation hands back.
     """
 
-    def __init__(self, source, x=None):
+    def __init__(self, source, x=None, buffer=None, L=None):
         self.source = source
-        self.materialised = x is None
+        self.buffered = buffer is not None
+        self.materialised = x is None and not self.buffered
         #: A group-to-group convolution takes one block per order, not one tensor.
         self.listed = isinstance(x, list)
-        self.x = () if x is None else (tuple(x) if self.listed else (x,))
-        self.L = (len(source) - 1) if self.materialised else source.L
+        self.x = (buffer,) if self.buffered else \
+            (() if x is None else (tuple(x) if self.listed else (x,)))
+        self.L = L if self.buffered else \
+            ((len(source) - 1) if self.materialised else source.L)
+
+    @classmethod
+    def from_buffer(cls, buffer: torch.Tensor, L: int) -> "Orders":
+        """Orders already packed into one buffer."""
+        return cls(None, buffer=buffer, L=L)
 
     @property
     def leading(self) -> torch.Tensor:
@@ -66,6 +76,10 @@ class Orders:
     def __getitem__(self, l: int) -> torch.Tensor:
         if self.materialised:
             return self.source[l]
+        if self.buffered:
+            start = kernels.base_offset(l)
+            block = self.x[0][..., start:start + (2 * l + 1) ** 2]
+            return block.reshape(*block.shape[:2], 2 * l + 1, 2 * l + 1)
         return self.source.block(l, list(self.x) if self.listed else self.x[0])
 
     def tensors(self) -> tuple:
@@ -76,6 +90,8 @@ class Orders:
         """The same orders over the tensors handed back by the recompute."""
         if self.materialised:
             return Orders(list(tensors))
+        if self.buffered:
+            return Orders.from_buffer(tensors[0], self.L)
         return Orders(self.source, list(tensors) if self.listed else tensors[0])
 
     def packed(self) -> torch.Tensor:
@@ -84,6 +100,8 @@ class Orders:
         The kernel walks the orders in place from this, so the lifted signal is
         built once per layer rather than once per slab.
         """
+        if self.buffered:
+            return self.x[0]
         blocks = [self[l] for l in range(self.L + 1)]
         return torch.cat([b.reshape(*b.shape[:2], -1) for b in blocks], dim=-1)
 

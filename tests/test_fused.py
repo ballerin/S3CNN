@@ -55,6 +55,21 @@ def test_slabs_compute_what_the_whole_grid_computes(build, arch):
 
 
 @pytest.mark.parametrize("arch", LIFTING)
+def test_a_normalisation_keeps_the_orders_packed(arch):
+    """Layer norm sums over the orders and divides by the result. Per order that
+    was hundreds of kernel launches; packed it is one reduction and one divide,
+    and the slab path keeps the buffer the convolution wrote."""
+    x = models.sample_input()
+    fast, plain = pair(flat, arch=arch, use_layer_norm=True)
+    assert relerr(fast(x).detach().numpy(), plain(x).detach().numpy()) < 1e-5
+
+    for model in (fast, plain):
+        model(x).abs().sum().backward()
+    for (name, a), (_, b) in zip(fast.named_parameters(), plain.named_parameters()):
+        assert relerr(a.grad.numpy(), b.grad.numpy()) < 1e-5, name
+
+
+@pytest.mark.parametrize("arch", LIFTING)
 def test_gradients_survive_the_recompute(arch):
     """Each slab is recomputed in the backward pass rather than stored, which is
     where the memory goes; the gradients have to come out the same anyway."""

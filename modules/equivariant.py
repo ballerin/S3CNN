@@ -119,12 +119,14 @@ class Block(nn.Module):
         if self.conv_only:
             return self.conv(x)
 
-        normed = self.batchnorm is not None or self.layernorm is not None
-        if self.lifts and self.fuse and not normed:
-            # Nothing between the convolution and the synthesis, so the orders
-            # can be convolved as the synthesis asks for them and the lifted
-            # signal never accumulates.
-            return self._fused(fused.Orders(self.conv, x), net)
+        if self.lifts and self.fuse and self.batchnorm is None:
+            # Nothing between the convolution and the synthesis that needs the
+            # orders apart, so they stay packed: convolved as the synthesis asks
+            # for them, and normalised in place if there is a normalisation.
+            orders = fused.Orders(self.conv, x)
+            if self.layernorm is not None:
+                orders = fused.Orders.from_buffer(self.layernorm(orders.packed()), orders.L)
+            return self._fused(orders, net)
 
         x = self.conv(x)
         if self.batchnorm is not None:

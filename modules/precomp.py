@@ -193,3 +193,25 @@ def rect_index(L: int, device=None) -> "Rect":
 
 
 _INDEX: dict = {}
+
+
+_ORDER_WEIGHTS: dict = {}
+
+
+def order_weights(total: int, device=None) -> torch.Tensor:
+    """`1/(2l+1)` for every coefficient of a packed SO(3) spectrum, zero on l = 0.
+
+    The weight a normalisation gives each order, as one vector over the packed
+    buffer, so the sum over orders is a single reduction rather than a loop.
+    Order l = 0 is excluded: it carries the mean, not a deviation from it.
+    """
+    key = (total, str(device))
+    if key not in _ORDER_WEIGHTS:
+        w, l, at = [], 0, 0
+        while at < total:
+            size = (2 * l + 1) ** 2
+            w.append(torch.full((size,), 0.0 if l == 0 else 1.0 / (2 * l + 1)))
+            at += size
+            l += 1
+        _ORDER_WEIGHTS[key] = torch.cat(w)[:total].to(device)
+    return _ORDER_WEIGHTS[key]

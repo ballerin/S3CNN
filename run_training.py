@@ -92,6 +92,7 @@ def run_training(gpu_id: int, # gpu id to use
                  log_id: str = None,
                  preload_dataset:bool = True,
                  gradient_accumulation: int = 1,
+                 detect_anomaly: bool = False,
                  verbose: bool = False,
                  ):
     """
@@ -125,6 +126,10 @@ def run_training(gpu_id: int, # gpu id to use
     - log_id: str, unique identifier for this run of this experiment (for logging purposes)
     - preload_dataset: bool, whether to preload the whole dataset into RAM memory
     - gradient_accumulation: int, optimiser steps are taken every this many batches
+    - detect_anomaly: bool, run autograd's anomaly detector. It records a traceback
+      for every forward operation and checks every backward for NaN, which costs
+      about 5x the step time, so it is for debugging a specific NaN, not for
+      training runs
     - verbose: bool, whether to print detailed logs during training
 
     Experiments:
@@ -170,6 +175,7 @@ def run_training(gpu_id: int, # gpu id to use
         preload_dataset = params.get('preload_dataset', preload_dataset)
         verbose = params.get('verbose', verbose)
         gradient_accumulation = max(params.get('gradient_accumulation', 1), 1)
+        detect_anomaly = params.get('detect_anomaly', False)
 
     # Parameters check
     spec = zoo.spec(experiment, model_type)
@@ -257,7 +263,7 @@ def run_training(gpu_id: int, # gpu id to use
     with open(logs_path+"training_log.txt",'w') as ff:
             ff.write(f"-- BEGIN OF LOG --\n")
 
-    torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(detect_anomaly)
     trainer = Trainer(gpu_id=gpu_id,
                       model = model,
                       in_datatype = task.in_datatype,
