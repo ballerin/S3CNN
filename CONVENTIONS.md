@@ -49,7 +49,10 @@ excluding the poles, with `beta_j = pi (j+1) / (n_beta+1)`
 
 The quadrature over beta is a sine-weighted rectangle rule with weight
 `pi/(n_beta+1) * sin(beta)`. It is **not** exact at `L = n_beta`, the shipped
-setting; see the quadrature study (defect 2, milestone M6).
+setting; see the quadrature study (defect 2, milestone M6). The rule lives in
+`modules/quadrature.py` and the analysis transforms take a `quadrature=`
+argument, so a replacement is registered there rather than edited into
+`SO3fft.py`.
 
 ## Transform normalisation
 

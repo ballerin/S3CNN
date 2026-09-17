@@ -7,6 +7,7 @@ Algorithm: Kostelec & Rockmore 2008, sec. 3.
 import numpy as np
 import torch
 from .SO3lib import from_index_to_beta
+from .quadrature import resolve as resolve_quadrature
 
 class S2_to_SO3(torch.nn.modules.Module):
     """
@@ -175,9 +176,10 @@ class S2FFT(torch.nn.modules.Module):
 
     [batch, channels, alpha, beta] -> [batch, channels, (L+1)^2]
     """
-    def __init__(self, L, n:int|list) -> None:
+    def __init__(self, L, n:int|list, quadrature=None) -> None:
         super(S2FFT, self).__init__()
         self.L = L
+        self.quadrature = resolve_quadrature(quadrature)
         if isinstance(n, list):
             for n_i in n:
                 if not isinstance(n_i, int):
@@ -213,27 +215,27 @@ class S2FFT(torch.nn.modules.Module):
         f_tilde = torch.fft.fftshift(f_tilde, dim=-2)#[:,:,n_alpha//2-L:n_alpha//2+L+1,:]
         f_tilde = torch.flip(f_tilde, dims=(-2,)) #m needs to be taken in negative order later
 
-        angle = from_index_to_beta(torch.arange(0,n_beta,device=f.device), n_beta=n_beta).to(torch.complex64)
-        aa = torch.sin(angle)
+        rule = self.quadrature
+        # A diagonal rule is contracted in pieces; anything else hands over the
+        # whole table. See `modules/quadrature.py`.
+        aa = rule.node_weights(n_beta, device=f.device) if rule.diagonal else None
 
         # [batch, channels, l+m]
         f_hat = torch.zeros((batch_size, n_features, self.L*(self.L+2)+1),
                             dtype=torch.complex64, device=f.device) 
 
-        if n==0: #Usual transform
-            for l in range(0,self.L+1):
-                ww = d_matrices[l]
-                ff = f_tilde[...,maf-l:maf+l+1,:].to(f.device)
-                f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1] = (2*l+1)/2 \
+        for l in range(0 if n == 0 else 1, self.L+1):
+            ww = d_matrices[l if n == 0 else l-1]
+            ff = f_tilde[...,maf-l:maf+l+1,:].to(f.device)
+            if rule.diagonal:
+                f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1] = rule.order_scale(l) \
                     * torch.einsum("b,bm,...mb->...m",aa,ww,ff)
-        elif n==1: #Suboptimal transform (1 dummy zero-coefficient at the beginning) 
-            for l in range(1,self.L+1):
-                ww = d_matrices[l-1]
-                ff = f_tilde[...,maf-l:maf+l+1,:].to(f.device)
-                f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1] = (2*l+1)/2 \
-                    * torch.einsum("b,bm,...mb->...m",aa,ww,ff)
-        
-        f_hat *= torch.pi/(n_beta+1) # Quadrature length,there are n_beta+1 intervals
+            else:
+                f_hat[...,(l-1)*(l+1)+1:l*(l+2)+1] = torch.einsum(
+                    "bm,...mb->...m", rule.operator(ww, l, n_beta), ff)
+
+        if rule.diagonal:
+            f_hat *= rule.measure(n_beta) # Quadrature length, n_beta+1 intervals
         
         return f_hat
 
@@ -403,16 +405,18 @@ class SO3FFT(torch.nn.modules.Module):
     """
     This module performs an FFT for a general signal on SO(3).
     """
-    def __init__(self, L:int, method:str="full") -> None:
+    def __init__(self, L:int, method:str="full", quadrature=None) -> None:
         """
         Parameters:
         - L: the expected order of the output
         - method: "full" or "delta"
+        - quadrature: rule for the beta integral; see `modules/quadrature.py`
         """
         super(SO3FFT, self).__init__()
 
         self.L = L
         self.method = method
+        self.quadrature = resolve_quadrature(quadrature)
 
         ALLOWED_METHODS = ["full", "delta"]
 
@@ -443,22 +447,23 @@ class SO3FFT(torch.nn.modules.Module):
         x = torch.flip(x, dims=(-3,-1)) # We need -m and -n as indeces
         
         x_hat = []
-        
-        angle = from_index_to_beta(torch.arange(0,n_beta,device=x.device),
-                                   n_beta=n_beta).to(torch.complex64)
-        aa = torch.sin(angle).to(torch.complex64)
-        
+
+        rule = self.quadrature
+        # Materialising the table here would scale the whole Wigner table on
+        # every call, so a diagonal rule stays factorised.
+        aa = rule.node_weights(n_beta, device=x.device) if rule.diagonal else None
+
         for l in range(0,self.L+1):
 
-            ww = d_matrices[l]
+            xx = x[...,maf_a-l:maf_a+l+1,:,maf_g-l:maf_g+l+1]
 
-            x_hat.append(torch.pi/(n_beta+1)* (2*l+1)/2 * 
-                        torch.einsum("b,bmn,...mbn->...mn",
-                                    aa,
-                                    ww,
-                                    x[...,maf_a-l:maf_a+l+1,:,maf_g-l:maf_g+l+1],
-                                    ))
-            
+            if rule.diagonal:
+                x_hat.append(rule.measure(n_beta) * rule.order_scale(l) *
+                            torch.einsum("b,bmn,...mbn->...mn", aa, d_matrices[l], xx))
+            else:
+                x_hat.append(torch.einsum("bmn,...mbn->...mn",
+                                          rule.operator(d_matrices[l], l, n_beta), xx))
+
         return x_hat #List of mn matrices indexed by l
 
     def _d_forward(self, x, bdeltas) -> list[torch.Tensor]:
