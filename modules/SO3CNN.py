@@ -13,6 +13,7 @@ from .SO3fft import SO3FFT, SO3iFFT
 
 from . import precomp
 from .SO3lib import normalise_spins
+from .architectures import resolve
 from .SO3ConvLayer import SO3Conv, SpinSO3Conv, SO3toSO3Conv
 
 from .SpectralModules import ComplexDropout, MagnitudeNonlinearity, WeightedLeakyReLU, \
@@ -52,14 +53,15 @@ class SO3CNN(nn.Module):
     def __init__(self,
                  n_alpha: int,
                  n_beta: int,
-                 layer_style:str="so3",
+                 arch:str=None,
+                 layer_style:str=None,
                  fft_method:str="full",
                  resolution:int=None,
                  widths:list=None,
                  spins:list=None,
                  use_batch_norm:bool=True,
                  use_layer_norm:bool=False,
-                 nonlinearity:str="magnitude",
+                 nonlinearity:str=None,
                  wigner_n0:list=None,
                  wigner_n1:list=None,
                  f_wigner:list = None,
@@ -77,10 +79,10 @@ class SO3CNN(nn.Module):
         Args:
             n_alpha (int): Expected initial/final longitude resolution (number of grid points).
             n_beta (int): Expected initial/final latitude resolution (number of grid points).
-            layer_style (str, optional): Type of layers to use. One of "so3", "spins", or
-                "full_so3". "full_so3" keeps the signal on SO(3) (no SpatialSmoothing) across
-                every intermediate layer, smoothing back down to S2 only after the last layer.
-                Defaults to "so3".
+            arch (str, optional): One of "scnn", "s3cnn", "swscnn"; see
+                `modules/architectures.py` for what separates them.
+            layer_style (str, optional): The pre-M2 spelling of `arch` --
+                "full_so3", "so3", "spins" for "scnn", "s3cnn", "swscnn".
             fft_method (str, optional): Type of d-matrices to use. Either "full", "delta", 
                 or "prod_delta". Defaults to "full".
             resolution (int, optional): Single resolution L used throughout all layers. 
@@ -109,29 +111,29 @@ class SO3CNN(nn.Module):
             ValueError: If last spin is not a single value of 0 or 1.
             ValueError: If widths and spins don't have the same length.
             ValueError: If number of layers is less than 2.
-            ValueError: If layer_style is not "so3" or "spins".
-            ValueError: If fft_method is not valid for the chosen layer_style.
+            ValueError: If arch names no known architecture.
+            ValueError: If the nonlinearity is one the architecture does not admit.
+            ValueError: If fft_method is not valid for the chosen architecture.
         """
 
         super(SO3CNN, self).__init__()
-
-        ALLOWED_NONLINEARITIES = ["phase_collapse", "magnitude", "relu", "leaky_relu"]
 
         ### Load paramenters in the class ###
 
         self.n_alpha = n_alpha
         self.n_beta = n_beta
-        self.layer_style = layer_style
+        self.spec = resolve(arch, layer_style)
+        self.arch = self.spec.name
         self.fft_method = fft_method
         self.resolutions = resolution
         self.widths = widths
         self.spins = spins
         self.use_batch_norm = use_batch_norm
         self.use_layer_norm = use_layer_norm
-        self.nonlinearity_type = nonlinearity
-
-        if self.nonlinearity_type not in ALLOWED_NONLINEARITIES:
-            raise ValueError(f"Nonlinearity must be one of {ALLOWED_NONLINEARITIES}, got {self.nonlinearity_type}")
+        # Which nonlinearities are admissible is a property of the architecture,
+        # not a free choice: see `modules/architectures.py`.
+        self.nonlinearity_type = self.spec.check_sigma(
+            self.spec.sigma if nonlinearity is None else nonlinearity)
 
         # `spins` accepts 0, [0] or [0,1] per layer; normalise so the rest of the
         # constructor can assume lists.
@@ -162,10 +164,7 @@ class SO3CNN(nn.Module):
         if self.resolutions is None:
             raise ValueError("Resolution must be specified")
         
-        if self.layer_style not in ["so3", "spins", "full_so3"]:
-            raise ValueError("Layer style must be 'so3', 'spins' or 'full_so3', not {}".format(self.layer_style))
-
-        if self.layer_style in ["so3", "full_so3"]:
+        if self.spec.lifts:
             if self.fft_method not in ["full", "delta"]:
                 raise ValueError("Method must be 'full' or 'delta' for SO3 layers, not {}".format(self.fft_method))
 
@@ -201,7 +200,7 @@ class SO3CNN(nn.Module):
             self.wigner_n1 = None
         
         # Initialization of the full Wigner d-matrices or bdelta coefficients
-        if self.layer_style in ["so3", "full_so3"]:
+        if self.spec.lifts:
             if self.fft_method == "delta":
                 #TODO Re-implement this method
                 pass 
@@ -247,13 +246,13 @@ class SO3CNN(nn.Module):
 
         for i in range(self.n_layers):
 
-            if self.layer_style == "so3":
+            if self.spec.filters == "spin":
                 self.convolutions.append(SO3Conv(
                     nfeature_in=self.fs[i]['f_in'],
                     nfeature_out=self.fs[i]['f_out'],
                     L=self.fs[i]['L'],
                 ))
-            elif self.layer_style == "full_so3":
+            elif self.spec.filters == "so3":
                 # Only the first layer lifts from S2 (vector) to SO(3) (matrix); every
                 # subsequent layer both consumes and produces genuine SO(3) signals, since
                 # no smoothing collapses it back down to S2 in between.
@@ -281,7 +280,7 @@ class SO3CNN(nn.Module):
             if i == self.n_layers - 1:
                 continue
 
-            if self.layer_style in ["so3", "full_so3"]:
+            if self.spec.lifts:
                 self.iFFTs.append(SO3iFFT(
                     L= self.fs[i]['L'],
                     n_alpha = self.fs[i]['a'],
@@ -296,7 +295,7 @@ class SO3CNN(nn.Module):
                     n = self.fs[i]['out_spins'],
                 ))
 
-            if self.layer_style in ["so3", "full_so3"]:
+            if self.spec.lifts:
                 if self.use_batch_norm:
                     self.batchnorm.append(
                         FullSpectralBatchNormalization(spins = self.fs[i]['out_spins'],
@@ -309,7 +308,7 @@ class SO3CNN(nn.Module):
                 elif self.nonlinearity_type == "leaky_relu":
                     self.nonlinearities.append(WeightedLeakyReLU())
                 # "full_so3" never smooths between layers -- only "so3" does, every layer.
-                if self.layer_style == "so3":
+                if self.spec.projects:
                     self.spatial_smoothing.append(SpatialSmoothing(n=self.fs[i]['out_spins']))
             else:
                 if self.use_batch_norm:
@@ -330,7 +329,7 @@ class SO3CNN(nn.Module):
 
             self.dropouts.append(ComplexDropout(p=0.2))
 
-            if self.layer_style == "full_so3":
+            if self.spec.filters == "so3":
                 self.FFTs.append(SO3FFT(L=self.fs[i]['L']))
             else:
                 self.FFTs.append(S2FFT(
@@ -343,7 +342,7 @@ class SO3CNN(nn.Module):
         self.s2ifft = S2iFFT(L=L, n_alpha=self.n_alpha, n_beta=self.n_beta, n=self.spins[-1])
 
         # Only the last layer needs to convert from SO(3) to S2
-        if self.layer_style in ["so3", "full_so3"]:
+        if self.spec.lifts:
             self.so3_to_s2 = SO3_to_S2(L=L, n=self.spins[-1])
 
     def get_buffered_slice_wigner(self, n=1):
@@ -394,7 +393,7 @@ class SO3CNN(nn.Module):
                 if self.use_layer_norm:
                     x = self.layernorm[i](x)
 
-                if self.layer_style in ["so3", "full_so3"]:
+                if self.spec.lifts:
                     x = self.iFFTs[i](x, d_matrices=self.get_buffered_full_wigner())
                 else:
                     x = self.iFFTs[i](x,
@@ -405,10 +404,10 @@ class SO3CNN(nn.Module):
                 x = self.dropouts[i](x)
 
                 # "full_so3" never smooths between layers -- the signal stays on SO(3)
-                if self.layer_style == "so3":
+                if self.spec.projects:
                     x = self.spatial_smoothing[i](x)
 
-                if self.layer_style == "full_so3":
+                if self.spec.filters == "so3":
                     x = self.FFTs[i](x, d_matrices=self.get_buffered_full_wigner())
                 else:
                     x = self.FFTs[i](x,
@@ -416,7 +415,7 @@ class SO3CNN(nn.Module):
                                      d_matrices_n1=self.get_buffered_slice_wigner(n=1))
 
         # If x is in the SO(3) domain, we slice to S2
-        if self.layer_style in ["so3", "full_so3"]:
+        if self.spec.lifts:
             x = self.so3_to_s2(x)
         
         x = self.s2ifft(x,

@@ -66,21 +66,21 @@ if __name__ == "__main__":
 
     def get_so3_path(ds, run, rb=False):
         if rb:
-            return f"experiments/wind->wind/SO3/NR/{ds+1}/{run}/RB_test_losses.pckl"
+            return f"experiments/wind->wind/S3CNN/NR/{ds+1}/{run}/RB_test_losses.pckl"
         else:
-            return f"experiments/wind->wind/SO3/NR/{ds+1}/{run}/NR_test_losses.pckl"
+            return f"experiments/wind->wind/S3CNN/NR/{ds+1}/{run}/NR_test_losses.pckl"
 
     def get_so3_r_path(ds, run):
-        return f"experiments/wind->wind/SO3/RB/{ds+1}/{run}/RB_test_losses.pckl"
+        return f"experiments/wind->wind/S3CNN/RB/{ds+1}/{run}/RB_test_losses.pckl"
 
     def get_spins_path(ds, run, rb=False):
         if rb:
-            return f"experiments/wind->wind/SPINS/NR/{ds+1}/{run}/RB_test_losses.pckl"
+            return f"experiments/wind->wind/SWSCNN/NR/{ds+1}/{run}/RB_test_losses.pckl"
         else:
-            return f"experiments/wind->wind/SPINS/NR/{ds+1}/{run}/NR_test_losses.pckl"
+            return f"experiments/wind->wind/SWSCNN/NR/{ds+1}/{run}/NR_test_losses.pckl"
 
     def get_spins_r_path(ds, run):
-        return f"experiments/wind->wind/SPINS/RB/{ds+1}/{run}/RB_test_losses.pckl"
+        return f"experiments/wind->wind/SWSCNN/RB/{ds+1}/{run}/RB_test_losses.pckl"
 
     if PLOT_DATA["MAG_NR_NR"]:
         mean_losses_MAG_NR_NR = [get_mean_loss(get_spins_path(ds, MAG_NR[ds], rb=False)) for ds in range(DATASET_SIZES)]

@@ -4,21 +4,21 @@ import matplotlib.pyplot as plt
 from matplotlib.transforms import blended_transform_factory
 import pickle
 
-#ours_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
-#ours_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
+#ours_train_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
+#ours_val_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
 
 
-swscnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
-swscnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
+swscnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
+swscnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
 
-swscnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_train_losses.pckl", "rb"))
-swscnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_val_losses.pckl", "rb"))
+swscnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2025-11-11-pc-ln-32/epoch_train_losses.pckl", "rb"))
+swscnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2025-11-11-pc-ln-32/epoch_val_losses.pckl", "rb"))
 
-s3cnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
-s3cnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
+s3cnn_onespin_train_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
+s3cnn_onespin_val_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2026-03-06-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
 
-s3cnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
-s3cnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
+s3cnn_bothspins_train_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
+s3cnn_bothspins_val_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
 
 fig = plt.figure(figsize=(8, 4))
 ax = fig.add_subplot(1, 1, 1)

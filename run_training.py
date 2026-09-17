@@ -8,6 +8,7 @@ from training_utils import plot_data
 
 from SphericalDataset import WeatherDataset, SphericalMNISTDataset
 from utils.data_utils import make_dataloader
+from utils.params import check_keys
 
 from modules.CNNUNet import CNNUNet
 from modules.CNNAutoencoder import CNNAutoencoder512
@@ -65,7 +66,7 @@ def run_training(gpu_id: int, # gpu id to use
     Parameters:
     - gpu_id: int, id of the GPU to use
     - params: dict, dictionary containing all parameters (if provided, overrides other parameters)
-    - model_type: str, type of the model to use (e.g., "SO3UNet", "CNNUNet", etc.)
+    - model_type: str, type of the model to use (e.g., "S3CNNUNet", "CNNUNet", etc.)
     - nonlinearity: str, type of nonlinearity to use
     - experiment: str, name of the experiment (e.g., "wind->wind", "temp->wind", etc.)
     - total_epochs: int, total number of epochs to train
@@ -93,30 +94,34 @@ def run_training(gpu_id: int, # gpu id to use
     - "MNIST-vector-to-scalar": MNIST vector to scalar prediction
 
     Model types:
-    - "SO3UNet": SO(3) equivariant UNet with full SO(3) layers
-    - "SpinsSO3UNet": SO(3) equivariant UNet with spins layers
+    - "S3CNNUNet": SO(3) equivariant UNet with full SO(3) layers
+    - "SwsCNNUNet": SO(3) equivariant UNet with spins layers
     - "CNNUNet": CNN UNet
-    - "SO3autoencoder": SO(3) equivariant autoencoder with full SO(3) layers
-    - "SpinsSO3autoencoder": SO(3) equivariant autoencoder with spins layers
+    - "S3CNNAutoencoder": SO(3) equivariant autoencoder with full SO(3) layers
+    - "SwsCNNAutoencoder": SO(3) equivariant autoencoder with spins layers
     - "CNNautoencoder": CNN autoencoder
-    - "SO3CNN": SO(3) equivariant flat CNN (no pooling/skip connections) for ablation
-    - "SpinsSO3CNN": SO(3) equivariant flat CNN with spins layers for ablation
-    - "SO3MNIST": SO(3) equivariant UNet/Classifier for MNIST with full SO(3) layers
-    - "SpinsSO3MNIST": SO(3) equivariant UNet/Classifier for MNIST with spins layers
+    - "S3CNNFlat": SO(3) equivariant flat CNN (no pooling/skip connections) for ablation
+    - "SwsCNNFlat": SO(3) equivariant flat CNN with spins layers for ablation
+    - "S3CNNMNIST": SO(3) equivariant UNet/Classifier for MNIST with full SO(3) layers
+    - "SwsCNNMNIST": SO(3) equivariant UNet/Classifier for MNIST with spins layers
     - "CNNMNIST": CNN for MNIST classification
     """
 
     ALLOWED_EXPERIMENTS = ["wind->wind", "temp->wind", "autoencoder", "MNIST-scalar-classification",
                 "MNIST-vf-classification", "MNIST-scalar-to-vector", "MNIST-vector-to-scalar"]
-    ALLOWED_MODEL_TYPES = ["SO3UNet", "SpinsSO3UNet", "CNNUNet", "SO3autoencoder",
-                "SpinsSO3autoencoder", "CNNautoencoder", "SO3CNN", "SpinsSO3CNN",
-                "SO3MNIST", "SpinsSO3MNIST", "CNNMNIST",
-                "SO3UNetOnlyOneSpin", "SpinsUNetOnlyOneSpin", "SO3MNISTOnlyOneSpin", "SpinsSO3MNISTOnlyOneSpin"] # Ablations
+    ALLOWED_MODEL_TYPES = ["S3CNNUNet", "SwsCNNUNet", "CNNUNet", "S3CNNAutoencoder",
+                "SwsCNNAutoencoder", "CNNautoencoder", "S3CNNFlat", "SwsCNNFlat",
+                "S3CNNMNIST", "SwsCNNMNIST", "CNNMNIST",
+                "S3CNNUNetOnlyOneSpin", "SwsCNNUNetOnlyOneSpin", "S3CNNMNISTOnlyOneSpin", "SwsCNNMNISTOnlyOneSpin"] # Ablations
     ALLOWED_ROTATIONS = ["no", "offset", "beta", "full"]
     ALLOWED_FFT_METHODS = ["full",] #Delta is not currently supported after refactor
     ALLOWED_NONLINEARITIES = [None, "magnitude", "phase_collapse", "relu", "leaky_relu"]
 
     if params is not None:
+        # Everything below reads `params` with `.get`, so a misspelled key would
+        # otherwise be a silent default rather than an error.
+        check_keys(params, run_training)
+
         # Required: a schedule entry without one of these is a typo, not a default.
         experiment = params['experiment']
         model_type = params['model_type']
@@ -139,10 +144,10 @@ def run_training(gpu_id: int, # gpu id to use
 
         if 'nonlinearity' in params:
             nonlinearity = params['nonlinearity']
-        elif model_type in ["SO3UNet", "SO3autoencoder", "SO3CNN", "SO3MNIST"]:
+        elif model_type in ["S3CNNUNet", "S3CNNAutoencoder", "S3CNNFlat", "S3CNNMNIST"]:
             nonlinearity = "leaky_relu"
-        elif model_type in ["SpinsSO3UNet", "SpinsSO3autoencoder", "SpinsSO3CNN",
-                            "SpinsSO3MNIST"]:
+        elif model_type in ["SwsCNNUNet", "SwsCNNAutoencoder", "SwsCNNFlat",
+                            "SwsCNNMNIST"]:
             nonlinearity = 'magnitude'
         else:
             nonlinearity = None  # CNNs
@@ -209,10 +214,10 @@ def run_training(gpu_id: int, # gpu id to use
                                          shuffle=False)
         
         # model type
-        if model_type == "SO3UNet":
-            mode = "SO3"
+        if model_type == "S3CNNUNet":
+            mode = "S3CNN"
             share_d_matrices = True
-            model = SO3UNet(layer_style="so3",
+            model = SO3UNet(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 100, 50, 100, 179],
@@ -223,10 +228,10 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SO3UNetOnlyOneSpin":
-            mode = "SO3"
+        elif model_type == "S3CNNUNetOnlyOneSpin":
+            mode = "S3CNN"
             share_d_matrices = True
-            model = SO3UNet(layer_style="so3",
+            model = SO3UNet(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 100, 50, 100, 179],
@@ -237,9 +242,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SpinsSO3UNet":
-            mode = "SPINS"
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNet":
+            mode = "SWSCNN"
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 150, 100, 50, 100, 150, 179],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -249,9 +254,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SpinsUNetOnlyOneSpin":
-            mode = "SPINS"
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNetOnlyOneSpin":
+            mode = "SWSCNN"
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 150, 100, 50, 100, 150, 179],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -261,10 +266,10 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SO3CNN":
-            mode = "SO3CNN"
+        elif model_type == "S3CNNFlat":
+            mode = "S3CNN_FLAT"
             share_d_matrices = True
-            model = SO3CNN(layer_style="so3",
+            model = SO3CNN(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolution = 179,
@@ -275,9 +280,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SpinsSO3CNN":
-            mode = "SPINS"
-            model = SO3CNN(layer_style="spins",
+        elif model_type == "SwsCNNFlat":
+            mode = "SWSCNN"
+            model = SO3CNN(arch="swscnn",
                             n_alpha = 360, n_beta=179,
                             resolution = 179,
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -325,10 +330,10 @@ def run_training(gpu_id: int, # gpu id to use
                                          shuffle=False)
 
         # model type
-        if model_type == "SO3UNet":
-            mode = "SO3"
+        if model_type == "S3CNNUNet":
+            mode = "S3CNN"
             share_d_matrices = True
-            model = SO3UNet(layer_style="so3",
+            model = SO3UNet(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 100, 50, 100, 179],
@@ -339,9 +344,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SpinsSO3UNet":
-            mode = "SPINS"
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNet":
+            mode = "SWSCNN"
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 150, 100, 50, 100, 150, 179],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -351,10 +356,10 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SO3CNN":
-            mode = "SO3"
+        elif model_type == "S3CNNFlat":
+            mode = "S3CNN"
             share_d_matrices = True
-            model = SO3CNN(layer_style="so3",
+            model = SO3CNN(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolution = 179,
@@ -365,9 +370,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SpinsSO3CNN":
-            mode = "SPINS"
-            model = SO3CNN(layer_style="spins",
+        elif model_type == "SwsCNNFlat":
+            mode = "SWSCNN"
+            model = SO3CNN(arch="swscnn",
                             n_alpha = 360, n_beta=179,
                             resolution = 179,
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -415,10 +420,10 @@ def run_training(gpu_id: int, # gpu id to use
                                          shuffle=False)
         
         # model type
-        if model_type == "SO3autoencoder": 
-            mode = "SO3"
+        if model_type == "S3CNNAutoencoder": 
+            mode = "S3CNN"
             share_d_matrices = True
-            model = SO3Autoencoder(layer_style = "so3",
+            model = SO3Autoencoder(arch = "s3cnn",
                             n_alpha = 360, n_beta = 179,
                             resolutions = [179, 100, 50, 5, 50, 100, 179],
                             widths = [1, 2, 4, 7, 7, 4, 2, 1],
@@ -428,9 +433,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SpinsSO3autoencoder": 
-            mode = "SPINS"
-            model = SO3Autoencoder(layer_style = "spins",
+        elif model_type == "SwsCNNAutoencoder": 
+            mode = "SWSCNN"
+            model = SO3Autoencoder(arch = "swscnn",
                             n_alpha = 360, n_beta = 179,
                             resolutions = [179, 150, 100, 50, 5, 50, 100, 150, 179],
                             widths = [1, 16, 24, 32, 7, 7, 32, 24, 16, 1],
@@ -477,10 +482,10 @@ def run_training(gpu_id: int, # gpu id to use
                                          shuffle=False)
         lossfnc = torch.nn.CrossEntropyLoss()
 
-        if model_type == "SO3MNIST": 
-            mode = "SO3"
+        if model_type == "S3CNNMNIST": 
+            mode = "S3CNN"
             model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59, head = True,
-                                       layer_style = "so3", fft_method = "full",
+                                       arch = "s3cnn", fft_method = "full",
                                        widths = [1, 2, 8, 32, 128, 512],
                                        resolutions = [59, 38, 14, 8, 2, 0],
                                        spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,]],
@@ -489,10 +494,10 @@ def run_training(gpu_id: int, # gpu id to use
                                        use_layer_norm = use_layer_norm,
                                        )
             optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SO3MNISTOnlyOneSpin": 
-            mode = "SO3"
+        elif model_type == "S3CNNMNISTOnlyOneSpin": 
+            mode = "S3CNN"
             model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59, head = True,
-                                       layer_style = "so3", fft_method = "full",
+                                       arch = "s3cnn", fft_method = "full",
                                        widths = [1, 2, 8, 32, 128, 512],
                                        resolutions = [59, 38, 14, 8, 2, 0],
                                        spins = [[0,], [0,], [0,], [0,], [0,], [0,]],
@@ -501,10 +506,10 @@ def run_training(gpu_id: int, # gpu id to use
                                        use_layer_norm = use_layer_norm,
                                        )
             optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SpinsSO3MNIST": 
-            mode = "SPINS"
+        elif model_type == "SwsCNNMNIST": 
+            mode = "SWSCNN"
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       layer_style="spins", fft_method="full",
+                                       arch="swscnn", fft_method="full",
                                        widths=[1, 4, 16, 32, 64, 128, 256, 512],
                                        resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
                                        spins=[[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,]],
@@ -513,10 +518,10 @@ def run_training(gpu_id: int, # gpu id to use
                                        use_layer_norm = use_layer_norm,
                                        )
             optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SpinsSO3MNISTOnlyOneSpin": 
-            mode = "SPINS"
+        elif model_type == "SwsCNNMNISTOnlyOneSpin": 
+            mode = "SWSCNN"
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       layer_style="spins", fft_method="full",
+                                       arch="swscnn", fft_method="full",
                                        widths=[1, 4, 16, 32, 64, 128, 256, 512],
                                        resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
                                        spins=[[0,], [0,], [0,], [0,], [0,], [0,], [0,], [0,]],
@@ -559,10 +564,10 @@ def run_training(gpu_id: int, # gpu id to use
         
         lossfnc = torch.nn.CrossEntropyLoss()
         
-        if model_type == "SO3MNIST": 
-            mode = "SO3"
+        if model_type == "S3CNNMNIST": 
+            mode = "S3CNN"
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       layer_style="so3", fft_method="full",
+                                       arch="s3cnn", fft_method="full",
                                        #widths=[1, 4, 16, 64, 256, 512],
                                        #resolutions=[59, 50, 25, 10, 2, 0],
                                        widths = [1, 2, 8, 32, 128, 512],
@@ -573,10 +578,10 @@ def run_training(gpu_id: int, # gpu id to use
                                        use_layer_norm = use_layer_norm,
                                        )
             optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SpinsSO3MNIST":
-            mode = "SPINS"
+        elif model_type == "SwsCNNMNIST":
+            mode = "SWSCNN"
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       layer_style="spins", fft_method="full",
+                                       arch="swscnn", fft_method="full",
                                        widths=[1, 4, 16, 64, 256, 512],
                                        resolutions=[59, 50, 25, 10, 2, 0],
                                        spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
@@ -620,9 +625,9 @@ def run_training(gpu_id: int, # gpu id to use
 
         lossfnc = S2MSELoss(n_beta=59)
 
-        if model_type == "SO3UNet":
-            mode = "SO3"
-            model = SO3UNet(layer_style="so3", fft_method="full",
+        if model_type == "S3CNNUNet":
+            mode = "S3CNN"
+            model = SO3UNet(arch="s3cnn", fft_method="full",
                             n_alpha = 120, n_beta = 59,
                             resolutions = [59, 50, 25, 50, 59],
                             widths = [1, 2, 8, 30, 8, 1],
@@ -632,9 +637,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SpinsSO3UNet":
-            mode = "SPINS"
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNet":
+            mode = "SWSCNN"
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 120, n_beta = 59,
                             resolutions = [59, 50, 40, 30, 40, 50, 59],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -677,9 +682,9 @@ def run_training(gpu_id: int, # gpu id to use
 
         lossfnc = S2MSELoss(n_beta=59)
 
-        if model_type == "SO3UNet":
-            mode = "SO3"
-            model = SO3UNet(layer_style="so3", fft_method="full",
+        if model_type == "S3CNNUNet":
+            mode = "S3CNN"
+            model = SO3UNet(arch="s3cnn", fft_method="full",
                             n_alpha = 120, n_beta = 59,
                             resolutions = [59, 50, 25, 50, 59],
                             widths = [1, 2, 8, 30, 8, 1],
@@ -689,9 +694,9 @@ def run_training(gpu_id: int, # gpu id to use
                             use_layer_norm = use_layer_norm,
                             )
             optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SpinsSO3UNet":
-            mode = "SPINS"
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNet":
+            mode = "SWSCNN"
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 120, n_beta = 59,
                             resolutions = [59, 50, 40, 50, 40, 50, 59],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -741,8 +746,8 @@ def run_training(gpu_id: int, # gpu id to use
               +"training_details.txt",'w') as ff:
             ff.write(f"-- BEGIN OF DETAILS --\n")
             ff.write(f"Model type: {model_type}\n")
-            if mode == "SO3" or mode == "SPINS":
-                ff.write(f" - layer style: {model.layer_style}\n")
+            if mode == "S3CNN" or mode == "SWSCNN":
+                ff.write(f" - architecture: {model.arch}\n")
                 ff.write(f" - fft method: {model.fft_method}\n")
                 ff.write(f" - resolutions: {model.resolutions}\n")
                 ff.write(f" - spins: {model.spins}\n")

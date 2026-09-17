@@ -11,6 +11,7 @@ from .SO3fft import SO3FFT, SO3iFFT
 
 from . import precomp
 from .SO3lib import normalise_spins
+from .architectures import resolve
 from .SO3ConvLayer import SO3Conv, SpinSO3Conv
 
 from .SpectralModules import ComplexDropout, MagnitudeNonlinearity, PhaseCollapseNonlinearity, WeightedLeakyReLU, \
@@ -22,13 +23,14 @@ class SO3MNISTClassifier(nn.Module):
     def __init__(self,
                  n_alpha: int,
                  n_beta: int,
-                 layer_style:str="so3",
+                 arch:str=None,
+                 layer_style:str=None,
                  fft_method:str="full",
                  resolutions:list=None,
                  widths:list=None,
                  spins:list=None,
                  head:bool=True,
-                 nonlinearity:str="magnitude",
+                 nonlinearity:str=None,
                  use_batch_norm:bool=True,
                  use_layer_norm:bool=False,
                  wigner_n0:list=None,
@@ -44,7 +46,8 @@ class SO3MNISTClassifier(nn.Module):
         Args:
             n_alpha (int): Expected initial/final longitude resolution (number of grid points).
             n_beta (int): Expected initial/final latitude resolution (number of grid points).
-            layer_style (str, optional): Type of layers to use, either "so3" or "spins". 
+            arch (str, optional): "s3cnn" or "swscnn"; see `modules/architectures.py`.
+            layer_style (str, optional): The pre-M2 spelling of `arch`. 
                 Defaults to "so3".
             fft_method (str, optional): FFT implementation to use. Defaults to "full".
             resolutions (list, optional): List of resolutions for each layer. Length is the 
@@ -71,7 +74,8 @@ class SO3MNISTClassifier(nn.Module):
         
         self.n_alpha = n_alpha
         self.n_beta = n_beta
-        self.layer_style = layer_style
+        self.spec = resolve(arch, layer_style)
+        self.arch = self.spec.name
         self.fft_method = fft_method
         self.resolutions = resolutions
         self.widths = widths
@@ -79,7 +83,15 @@ class SO3MNISTClassifier(nn.Module):
         self.head = head
         self.use_batch_norm = use_batch_norm
         self.use_layer_norm = use_layer_norm
-        self.nonlinearity_type = nonlinearity
+        self.nonlinearity_type = self.spec.check_sigma(
+            self.spec.sigma if nonlinearity is None else nonlinearity)
+
+        # The group-filter path (scnn) needs SO(3) pooling, which only the flat
+        # SO3CNN has so far; see `modules/architectures.py`.
+        if self.spec.filters == "so3":
+            raise NotImplementedError(
+                f"{type(self).__name__} has no scnn path yet: pooling on the "
+                f"group is not implemented here. Use SO3CNN for scnn.")
 
         # `spins` accepts 0, [0] or [0,1] per layer; normalise so the rest of the
         # constructor can assume lists.
@@ -127,7 +139,7 @@ class SO3MNISTClassifier(nn.Module):
         else:
             self.wigner_n1 = None
         
-        if self.layer_style == "so3":
+        if self.spec.lifts:
             if self.fft_method == "delta":
                 #TODO Re-implement this method
                 # Coefficient sharing with rotator not possible
@@ -168,27 +180,27 @@ class SO3MNISTClassifier(nn.Module):
 
         # LAYERS
         for i in range(len(self.layers)):
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 self.convolutions.append(SO3Conv(
                     nfeature_in=self.layers[i]['f_in'],
                     nfeature_out=self.layers[i]['f_out'],
                     L=self.layers[i]['L_in'],
                 ))
-            elif self.layer_style == "spins":
+            elif not self.spec.lifts:
                 self.convolutions.append(SpinSO3Conv(
                     nfeature_in=self.layers[i]['f_in'],
                     nfeature_out=self.layers[i]['f_out'],
                     L=self.layers[i]['L_in'],
                 ))
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 self.iFFTs.append(SO3iFFT(
                     L=self.layers[i]['L_in'],
                     n_alpha = self.layers[i]['a'],
                     n_beta = self.n_beta,
                     n_gamma = self.layers[i]['a'],
                 ))
-            elif self.layer_style == "spins":
+            elif not self.spec.lifts:
                 self.iFFTs.append(S2iFFT(
                     L=self.layers[i]['L_in'],
                     n_alpha = self.layers[i]['a'],
@@ -198,7 +210,7 @@ class SO3MNISTClassifier(nn.Module):
             
             self.dropouts.append(ComplexDropout(p=0.2))
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 self.nonlinearities.append(WeightedLeakyReLU())
                 self.spatial_smoothing.append(SpatialSmoothing(n=self.layers[i]['out_spins']))
                 if self.use_batch_norm:
@@ -208,7 +220,7 @@ class SO3MNISTClassifier(nn.Module):
                 if self.use_layer_norm:
                     self.layernorm.append(
                     FullSpectralLayerNormalization(n = self.layers[i]['out_spins'], nfeatures = self.layers[i]['f_out']))
-            elif self.layer_style == "spins":
+            elif not self.spec.lifts:
                 if self.nonlinearity_type == "magnitude":
                     self.nonlinearities.append(MagnitudeNonlinearity(n=self.layers[i]['out_spins']))
                 elif self.nonlinearity_type == "phase_collapse":
@@ -297,7 +309,7 @@ class SO3MNISTClassifier(nn.Module):
             if self.use_layer_norm:
                 x = self.layernorm[i](x) # Layer normalization
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 x = self.iFFTs[i](x, d_matrices=self.get_buffered_full_wigner())
             else:
                 x = self.iFFTs[i](x,
@@ -307,7 +319,7 @@ class SO3MNISTClassifier(nn.Module):
             x = self.nonlinearities[i](x) # Nonlinearity/activation function in the spatial domain
             x = self.dropouts[i](x) # Space dropout
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 x = self.spatial_smoothing[i](x) # [alpha, beta, gamma] -> [alpha, beta]
 
             # [alpha, beta] -> [l,m]

@@ -5,6 +5,7 @@ import torch
 
 from SphericalDataset import WeatherDataset, SphericalMNISTDataset
 from utils.data_utils import make_dataloader
+from utils.params import check_keys
 
 from modules.CNNUNet import CNNUNet
 from modules.CNNAutoencoder import CNNAutoencoder512
@@ -35,15 +36,17 @@ def run_testing(gpu_id: int, # gpu id to use
 
     ALLOWED_EXPERIMENTS = ["wind->wind", "temp->wind", "autoencoder", "MNIST-scalar-classification",
                 "MNIST-vf-classification", "MNIST-scalar-to-vector", "MNIST-vector-to-scalar"]
-    ALLOWED_MODEL_TYPES = ["SO3UNet", "SpinsSO3UNet", "CNNUNet", "SO3autoencoder",
-                "SpinsSO3autoencoder", "CNNautoencoder", "SO3CNN", "SpinsSO3CNN",
-                "SO3MNIST", "SpinsSO3MNIST", "CNNMNIST",
-                "SO3UNetOnlyOneSpin", "SpinsUNetOnlyOneSpin", "SO3MNISTOnlyOneSpin", "SpinsSO3MNISTOnlyOneSpin"] # Ablations
+    ALLOWED_MODEL_TYPES = ["S3CNNUNet", "SwsCNNUNet", "CNNUNet", "S3CNNAutoencoder",
+                "SwsCNNAutoencoder", "CNNautoencoder", "S3CNNFlat", "SwsCNNFlat",
+                "S3CNNMNIST", "SwsCNNMNIST", "CNNMNIST",
+                "S3CNNUNetOnlyOneSpin", "SwsCNNUNetOnlyOneSpin", "S3CNNMNISTOnlyOneSpin", "SwsCNNMNISTOnlyOneSpin"] # Ablations
     ALLOWED_ROTATIONS = ["no", "offset", "beta", "full"]
     ALLOWED_FFT_METHODS = ["full",] #Delta is not currently supported after refactor
     ALLOWED_NONLINEARITIES = [None, "magnitude", "phase_collapse", "relu", "leaky_relu"]
 
     if params is not None:
+        check_keys(params, run_testing)
+
         experiment = params['experiment']
         model_type = params['model_type']
         batch_size = params['batch_size']
@@ -52,9 +55,9 @@ def run_testing(gpu_id: int, # gpu id to use
 
         fft_method = params.get('fft_method', 'full')
         if 'nonlinearity' not in params.keys():
-            if model_type in ["SO3UNet", "SO3autoencoder", "SO3MNIST"]:
+            if model_type in ["S3CNNUNet", "S3CNNAutoencoder", "S3CNNMNIST"]:
                 nonlinearity = "leaky_relu"
-            elif model_type in ["SpinsSO3UNet", "SpinsSO3autoencoder", "SpinsSO3MNIST"]:
+            elif model_type in ["SwsCNNUNet", "SwsCNNAutoencoder", "SwsCNNMNIST"]:
                 nonlinearity = "magnitude"
             else:
                 #CNNs
@@ -134,8 +137,8 @@ def run_testing(gpu_id: int, # gpu id to use
         
         lossfnc = S2RMSELoss(n_beta=179)
 
-        if model_type == "SO3UNet":
-             model = SO3UNet(layer_style="so3",
+        if model_type == "S3CNNUNet":
+             model = SO3UNet(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 100, 50, 100, 179],
@@ -147,8 +150,8 @@ def run_testing(gpu_id: int, # gpu id to use
                             ).to(DEVICE)
              model.load_state_dict(
                   torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SO3UNetOnlyOneSpin":
-            model = SO3UNet(layer_style="so3",
+        elif model_type == "S3CNNUNetOnlyOneSpin":
+            model = SO3UNet(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 100, 50, 100, 179],
@@ -160,8 +163,8 @@ def run_testing(gpu_id: int, # gpu id to use
                             ).to(DEVICE)
             model.load_state_dict(
                  torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SpinsSO3UNet":
-            model = SO3UNet(layer_style = "spins",
+        elif model_type == "SwsCNNUNet":
+            model = SO3UNet(arch = "swscnn",
                             n_alpha = 360, n_beta = 179,
                             resolutions = [179, 150, 100, 50, 100, 150, 179],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -172,8 +175,8 @@ def run_testing(gpu_id: int, # gpu id to use
                             ).to(DEVICE)
             model.load_state_dict(
                  torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SpinsUNetOnlyOneSpin":
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNetOnlyOneSpin":
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 150, 100, 50, 100, 150, 179],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -184,9 +187,9 @@ def run_testing(gpu_id: int, # gpu id to use
                             ).to(DEVICE)
             model.load_state_dict(
                  torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SO3CNN":
+        elif model_type == "S3CNNFlat":
             share_d_matrices = True
-            model = SO3CNN(layer_style="so3",
+            model = SO3CNN(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolution = 179,
@@ -198,8 +201,8 @@ def run_testing(gpu_id: int, # gpu id to use
                             ).to(DEVICE)
             model.load_state_dict(
                  torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SpinsSO3CNN":
-            model = SO3CNN(layer_style="spins",
+        elif model_type == "SwsCNNFlat":
+            model = SO3CNN(arch="swscnn",
                             n_alpha = 360, n_beta=179,
                             resolution = 179,
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -238,8 +241,8 @@ def run_testing(gpu_id: int, # gpu id to use
                                           shuffle=False)
         
         
-        if model_type == "SO3UNet":
-            model = SO3UNet(layer_style="so3",
+        if model_type == "S3CNNUNet":
+            model = SO3UNet(arch="s3cnn",
                             fft_method="full",
                             n_alpha = 360, n_beta=179,
                             resolutions = [179, 100, 50, 100, 179],
@@ -251,8 +254,8 @@ def run_testing(gpu_id: int, # gpu id to use
                             ).to(DEVICE)
             model.load_state_dict(
                   torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SpinsSO3UNet":
-            model = SO3UNet(layer_style = "spins",
+        elif model_type == "SwsCNNUNet":
+            model = SO3UNet(arch = "swscnn",
                             n_alpha = 360, n_beta = 179,
                             resolutions = [179, 150, 100, 50, 100, 150, 179],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
@@ -294,8 +297,8 @@ def run_testing(gpu_id: int, # gpu id to use
         
         lossfnc = S2RMSELoss(n_beta=179)
 
-        if model_type == "SO3autoencoder":
-            model = SO3Autoencoder(layer_style = "so3",
+        if model_type == "S3CNNAutoencoder":
+            model = SO3Autoencoder(arch = "s3cnn",
                             n_alpha = 360, n_beta = 179,
                             resolutions = [179, 100, 50, 5, 50, 100, 179],
                             widths = [1, 2, 4, 7, 7, 4, 2, 1],
@@ -306,8 +309,8 @@ def run_testing(gpu_id: int, # gpu id to use
                             ).to(DEVICE)
             model.load_state_dict(
                  torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SpinsSO3autoencoder":
-            model = SO3Autoencoder(layer_style = "spins",
+        elif model_type == "SwsCNNAutoencoder":
+            model = SO3Autoencoder(arch = "swscnn",
                             n_alpha = 360, n_beta = 179,
                             resolutions = [179, 150, 100, 50, 5, 50, 100, 150, 179],
                             widths = [1, 16, 24, 32, 7, 7, 32, 24, 16, 1],
@@ -348,18 +351,18 @@ def run_testing(gpu_id: int, # gpu id to use
         
         lossfnc = None  # No loss function needed for classification test, as we use accuracy
 
-        if model_type == "SO3MNIST": 
+        if model_type == "S3CNNMNIST": 
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       layer_style="so3", fft_method="full",
+                                       arch="s3cnn", fft_method="full",
                                        widths = [1, 2, 8, 32, 128, 512],
                                        resolutions = [59, 38, 14, 8, 2, 0],
                                        spins=[[0,], [0,1], [0,1], [0,1], [0,1], [0,]],
                                        use_batch_norm=use_batch_norm,
                                        use_layer_norm = use_layer_norm,
                                        nonlinearity=nonlinearity).to(DEVICE)
-        elif model_type == "SO3MNISTOnlyOneSpin": 
+        elif model_type == "S3CNNMNISTOnlyOneSpin": 
             model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59, head = True,
-                                       layer_style = "so3", fft_method = "full",
+                                       arch = "s3cnn", fft_method = "full",
                                        widths = [1, 2, 8, 32, 128, 512],
                                        resolutions = [59, 38, 14, 8, 2, 0],
                                        spins = [[0,], [0,], [0,], [0,], [0,], [0,]],
@@ -367,18 +370,18 @@ def run_testing(gpu_id: int, # gpu id to use
                                        use_batch_norm = use_batch_norm,
                                        use_layer_norm = use_layer_norm,
                                        ).to(DEVICE)
-        elif model_type == "SpinsSO3MNIST":
+        elif model_type == "SwsCNNMNIST":
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       layer_style="spins", fft_method="full",
+                                       arch="swscnn", fft_method="full",
                                        widths=[1, 4, 16, 32, 64, 128, 256, 512],
                                        resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
                                        spins=[[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,]],
                                        use_batch_norm=use_batch_norm,
                                        use_layer_norm = use_layer_norm,
                                        nonlinearity=nonlinearity).to(DEVICE)
-        elif model_type == "SpinsSO3MNISTOnlyOneSpin": 
+        elif model_type == "SwsCNNMNISTOnlyOneSpin": 
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       layer_style="spins", fft_method="full",
+                                       arch="swscnn", fft_method="full",
                                        widths=[1, 4, 16, 32, 64, 128, 256, 512],
                                        resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
                                        spins=[[0,], [0,], [0,], [0,], [0,], [0,], [0,], [0,]],
@@ -412,9 +415,9 @@ def run_testing(gpu_id: int, # gpu id to use
         
         lossfnc = None  # No loss function needed for classification test, as we use accuracy
         
-        if model_type == "SO3MNIST": 
+        if model_type == "S3CNNMNIST": 
             model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59,
-                                       layer_style = "so3", fft_method = "full",
+                                       arch = "s3cnn", fft_method = "full",
                                        widths = [1, 2, 8, 32, 128, 512],
                                        resolutions = [59, 38, 14, 8, 2, 0],
                                        spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
@@ -422,9 +425,9 @@ def run_testing(gpu_id: int, # gpu id to use
                                        use_batch_norm = use_batch_norm,
                                        use_layer_norm = use_layer_norm,
                                        ).to(DEVICE)
-        elif model_type == "SpinsSO3MNIST":
+        elif model_type == "SwsCNNMNIST":
             model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       layer_style="spins", fft_method="full",
+                                       arch="swscnn", fft_method="full",
                                        widths=[1, 4, 16, 64, 256, 512],
                                        resolutions=[59, 50, 25, 10, 2, 0],
                                        spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
@@ -458,8 +461,8 @@ def run_testing(gpu_id: int, # gpu id to use
 
         lossfnc = S2RMSELoss(n_beta=59)
 
-        if model_type == "SO3UNet":
-            model = SO3UNet(layer_style="so3", fft_method="full",
+        if model_type == "S3CNNUNet":
+            model = SO3UNet(arch="s3cnn", fft_method="full",
                             n_alpha = 120, n_beta = 59,
                             resolutions = [59, 50, 25, 50, 59],
                             widths = [1, 2, 8, 30, 8, 1],
@@ -468,10 +471,10 @@ def run_testing(gpu_id: int, # gpu id to use
                             use_batch_norm = use_batch_norm,
                             use_layer_norm = use_layer_norm,
                             ).to(DEVICE)
-        elif model_type == "SpinsSO3UNet":
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNet":
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 100, 50, 100, 50, 59],
+                            resolutions = [59, 50, 40, 30, 40, 50, 59],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
                             spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
                             nonlinearity = nonlinearity,
@@ -502,8 +505,8 @@ def run_testing(gpu_id: int, # gpu id to use
 
         lossfnc = S2RMSELoss(n_beta=59)
 
-        if model_type == "SO3UNet":
-            model = SO3UNet(layer_style="so3", fft_method="full",
+        if model_type == "S3CNNUNet":
+            model = SO3UNet(arch="s3cnn", fft_method="full",
                             n_alpha = 120, n_beta = 59,
                             resolutions = [59, 50, 25, 50, 59],
                             widths = [1, 2, 8, 30, 8, 1],
@@ -512,10 +515,10 @@ def run_testing(gpu_id: int, # gpu id to use
                             use_batch_norm = use_batch_norm,
                             use_layer_norm = use_layer_norm,
                             ).to(DEVICE)
-        elif model_type == "SpinsSO3UNet":
-            model = SO3UNet(layer_style="spins",
+        elif model_type == "SwsCNNUNet":
+            model = SO3UNet(arch="swscnn",
                             n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 100, 50, 100, 50, 59],
+                            resolutions = [59, 50, 40, 50, 40, 50, 59],
                             widths = [1, 4, 32, 128, 256, 48, 16, 1],
                             spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,]],
                             nonlinearity = nonlinearity,

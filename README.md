@@ -78,25 +78,33 @@ The file `precomp/ROTATIONS_<N_ROTATIONS>.pckl` contains a list of randomly gene
 
 ## Models
 
-We have implemented the following models. In the notation of the paper, `SO3*` models correspond to the proposed **S3CNN** (spin-weighted smoothing spherical CNN, full unconstrained SO(3) convolution followed by a smoothing operator), `Spins*` models correspond to the **swsCNN** baseline (spin-weighted spherical CNN, with spin-restricted filters), and `CNN*` models correspond to the classical Euclidean **CNN** baseline.
+We have implemented the following models. `S3CNN*` models are the proposed
+**S3CNN** (spin-weighted smoothing spherical CNN: an SO(3) convolution
+followed by a smoothing operator that projects back to S2 every layer);
+`SwsCNN*` models are the **swsCNN** baseline (spin-weighted spherical CNN,
+spin-restricted filters, Esteves et al.); `CNN*` models are the classical
+Euclidean **CNN** baseline. A third architecture, **sCNN** (Cohen et al.,
+the full psi^l_{m,n} group filter with no projection), exists as
+`arch="scnn"` on the flat `SO3CNN` and is not yet wired into the model keys
+below -- it needs pooling on the group. See `modules/architectures.py`.
 
 | key                          | Description                                 
 | --------------------- | --------------------------------------------------------- |
-| `SO3UNet`             | UNet architecture with full-SO(3) equiv. layers (S3CNN)          |
-| `SpinsSO3UNet`        | UNet architecture with spin-weighted equiv. layers (swsCNN)       |
+| `S3CNNUNet`           | UNet architecture with S3CNN layers                     |
+| `SwsCNNUNet`          | UNet architecture with swsCNN layers                        |
 | `CNNUNet`             | CNN UNet architecture (CNN baseline)                                    |
-| `SO3autoencoder`      | Autoencoder architecture with full-SO(3) equiv layers (S3CNN)    |
-| `SpinsSO3autoencoder` | Autoencoder architecture with spin-weighted equiv. layers (swsCNN) |
+| `S3CNNAutoencoder`    | Autoencoder architecture with S3CNN layers              |
+| `SwsCNNAutoencoder`   | Autoencoder architecture with swsCNN layers                  |
 | `CNNautoencoder`      | Autoencoder architecture based on CNN (CNN baseline)                    |
-| `SO3MNIST`            | Equivariant classifier based on full-SO(3) layers (S3CNN)        |
-| `SpinsSO3MNIST`       | Equivariant classifier based on spin-weighted layers (swsCNN)     |
+| `S3CNNMNIST`          | Equivariant classifier based on S3CNN layers               |
+| `SwsCNNMNIST`         | Equivariant classifier based on swsCNN layers                |
 | `CNNMNIST`            | Classifier based on conv. layers (CNN baseline)                         |
 
 ### SO(3)-Equivariant models
 
 | key           | Value             | Description                                 
 | ------------- |-------------------| ------------------------------------------------------------ |
-| `layer_type`  | `so3` or `spins`  | `so3` for full layers, `spins` for spin-weighted             |
+| `arch`        | `s3cnn`, `swscnn` or `scnn` | The architecture; see `modules/architectures.py` |
 | `fft_method`  | `full` or `delta` | Only `full` is currently implemented. Fast but not sp.-eff.  |
 | `n_alpha`     |  int              | Longitude resolution (usually 120 or 360)                    |
 | `n_beta`      |  int              | Latitude resolution excluding poles (usually 59 or 179)      |
@@ -105,7 +113,7 @@ We have implemented the following models. In the notation of the paper, `SO3*` m
 | `spins`       |  list of lists    | List of spins $n\in\{0,1\}$ at each layer. Both = half channels each  |
 
 ```
-model = SO3UNet(layer_type="so3",
+model = SO3UNet(arch="s3cnn",
                 fft_method="full",
                 n_alpha = 360, n_beta=179,
                 resolutions = [179, 100, 50, 100, 179],

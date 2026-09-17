@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 from matplotlib.transforms import blended_transform_factory
 import pickle
 
-mag_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-07-mag-ln-32/epoch_train_losses.pckl", "rb"))
-mag_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2026-03-07-mag-ln-32/epoch_val_losses.pckl", "rb"))
+mag_train_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2026-03-07-mag-ln-32/epoch_train_losses.pckl", "rb"))
+mag_val_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2026-03-07-mag-ln-32/epoch_val_losses.pckl", "rb"))
 
-pc_train_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_train_losses.pckl", "rb"))
-pc_val_losses = pickle.load(open("experiments/wind->wind/SPINS/NR/1/2025-11-11-pc-ln-32/epoch_val_losses.pckl", "rb"))
+pc_train_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2025-11-11-pc-ln-32/epoch_train_losses.pckl", "rb"))
+pc_val_losses = pickle.load(open("experiments/wind->wind/SWSCNN/NR/1/2025-11-11-pc-ln-32/epoch_val_losses.pckl", "rb"))
 
 fig = plt.figure(figsize=(8,4))
 ax = fig.add_subplot(1, 1, 1)

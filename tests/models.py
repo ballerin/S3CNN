@@ -30,43 +30,38 @@ def _common():
                 wigner_n0=n0, wigner_n1=n1, f_wigner=full)
 
 
-def _nl(style):
-    """The SO(3) styles have no magnitude nonlinearity; they take a ReLU."""
-    return {} if style == "spins" else dict(nonlinearity="leaky_relu")
+def cnn(arch="swscnn"):
+    return SO3CNN(arch=arch, resolution=L, widths=[1, 2, 1],
+                  spins=[[0], [0, 1], [0]], **_common())
 
 
-def cnn(style="spins"):
-    return SO3CNN(layer_style=style, resolution=L, widths=[1, 2, 1],
-                  spins=[[0], [0, 1], [0]], **_nl(style), **_common())
-
-
-def unet(style="spins", inner=INNER):
-    return SO3UNet(layer_style=style, resolutions=[L, inner, L],
+def unet(arch="swscnn", inner=INNER):
+    return SO3UNet(arch=arch, resolutions=[L, inner, L],
                    widths=[1, 2, 2, 1], spins=[[0], [0, 1], [0, 1], [0]],
-                   **_nl(style), **_common())
+                   **_common())
 
 
-def autoencoder(style="spins"):
-    return SO3Autoencoder(layer_style=style, resolutions=[L, INNER, L],
+def autoencoder(arch="swscnn"):
+    return SO3Autoencoder(arch=arch, resolutions=[L, INNER, L],
                           widths=[1, 2, 2, 1], spins=[[0], [0, 1], [0, 1], [0]],
-                          **_nl(style), **_common())
+                          **_common())
 
 
-def mnist(style="spins"):
-    return SO3MNISTClassifier(layer_style=style, resolutions=[L, INNER, 0],
+def mnist(arch="swscnn"):
+    return SO3MNISTClassifier(arch=arch, resolutions=[L, INNER, 0],
                               widths=[1, 2, 10], spins=[[0], [0, 1], [0]],
-                              **_nl(style), **_common())
+                              **_common())
 
 
 BUILDERS = {
-    "cnn_spins": lambda: cnn("spins"),
-    "cnn_so3": lambda: cnn("so3"),
-    "cnn_full_so3": lambda: cnn("full_so3"),
-    "unet_spins": lambda: unet("spins"),
-    "unet_so3": lambda: unet("so3"),
-    "autoencoder_spins": lambda: autoencoder("spins"),
-    "mnist_spins": lambda: mnist("spins"),
-    "mnist_so3": lambda: mnist("so3"),
+    "cnn_swscnn": lambda: cnn("swscnn"),
+    "cnn_s3cnn": lambda: cnn("s3cnn"),
+    "cnn_scnn": lambda: cnn("scnn"),
+    "unet_swscnn": lambda: unet("swscnn"),
+    "unet_s3cnn": lambda: unet("s3cnn"),
+    "autoencoder_swscnn": lambda: autoencoder("swscnn"),
+    "mnist_swscnn": lambda: mnist("swscnn"),
+    "mnist_s3cnn": lambda: mnist("s3cnn"),
 }
 
 # Models that map the sphere to itself; the rest are classifiers.

@@ -133,6 +133,10 @@ if __name__ == '__main__':
             COMPUTE_SINES = False
             if verbose:
                 print("Sines found! Skipping computations of sines.")
+        if os.path.exists("precomp/CONJ_PROD_"+str(n_beta)+"_"+str(l_max)+".list"):
+            COMPUTE_CONJ_PROD = False
+            if verbose:
+                print("Conjugate products found! Skipping computations of conj_prod.")
 
         sines = None
 
@@ -163,16 +167,22 @@ if __name__ == '__main__':
                 if l>0: # The sliced version for n=1 cannot be computed for l=0 
                     slice_wigner_1_list.append(aa[:,:,l+1].contiguous().requires_grad_(False))
                 bdeltas.append(bDelta(l, aa[n_beta//2]).requires_grad_(False)) # n_beta//2 = pi/2
-            pickle.dump(full_wigner_d_list, open("precomp/FULL_WIGNER_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
-            if verbose:
-                print("Saved full Wigner d-matrices in precomp/FULL_WIGNER_"+str(n_beta)+"_"+str(l_max)+".list")
-            pickle.dump(slice_wigner_0_list, open("precomp/SLICE_WIGNER_N0_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
-            pickle.dump(slice_wigner_1_list, open("precomp/SLICE_WIGNER_N1_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
-            if verbose:
-                print("Saved full Wigner d-matrices in precomp/SLICE_WIGNER_"+str(n_beta)+"_"+str(l_max)+".list")
-            pickle.dump(bdeltas, open("precomp/BDELTAS_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
-            if verbose:
-                print("Saved full Wigner d-matrices in precomp/BDELTAS_"+str(n_beta)+"_"+str(l_max)+".list")
+            # One loop computes all four tables, but only the missing ones are
+            # written: FULL_WIGNER alone is 11 GB at l_max=179, and rewriting a
+            # file that is already correct costs minutes for nothing.
+            if COMPUTE_FULL_WIGNER:
+                pickle.dump(full_wigner_d_list, open("precomp/FULL_WIGNER_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
+                if verbose:
+                    print("Saved full Wigner d-matrices in precomp/FULL_WIGNER_"+str(n_beta)+"_"+str(l_max)+".list")
+            if COMPUTE_SLICE_WIGNER:
+                pickle.dump(slice_wigner_0_list, open("precomp/SLICE_WIGNER_N0_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
+                pickle.dump(slice_wigner_1_list, open("precomp/SLICE_WIGNER_N1_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
+                if verbose:
+                    print("Saved sliced Wigner d-matrices in precomp/SLICE_WIGNER_N{0,1}_"+str(n_beta)+"_"+str(l_max)+".list")
+            if COMPUTE_BDELTAS:
+                pickle.dump(bdeltas, open("precomp/BDELTAS_"+str(n_beta)+"_"+str(l_max)+".list","wb"))
+                if verbose:
+                    print("Saved b-deltas in precomp/BDELTAS_"+str(n_beta)+"_"+str(l_max)+".list")
         else:
             if verbose:
                 print("Skipping computations of wigner-d matrices")

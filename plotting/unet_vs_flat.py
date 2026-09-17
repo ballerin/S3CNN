@@ -4,14 +4,14 @@ import matplotlib.pyplot as plt
 from matplotlib.transforms import blended_transform_factory
 import pickle
 
-unet_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
-unet_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
+unet_train_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
+unet_val_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
 
-flatshort_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-02-18-lr-ln-ABLATION-FLAT/epoch_train_losses.pckl", "rb"))
-flatshort_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-02-18-lr-ln-ABLATION-FLAT/epoch_val_losses.pckl", "rb"))
+flatshort_train_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2026-02-18-lr-ln-ABLATION-FLAT/epoch_train_losses.pckl", "rb"))
+flatshort_val_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2026-02-18-lr-ln-ABLATION-FLAT/epoch_val_losses.pckl", "rb"))
 
-flatlong_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-02-18-lr-ln-ABLATION-FLAT-LONG/epoch_train_losses.pckl", "rb"))
-flatlong_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2026-02-18-lr-ln-ABLATION-FLAT-LONG/epoch_val_losses.pckl", "rb"))
+flatlong_train_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2026-02-18-lr-ln-ABLATION-FLAT-LONG/epoch_train_losses.pckl", "rb"))
+flatlong_val_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2026-02-18-lr-ln-ABLATION-FLAT-LONG/epoch_val_losses.pckl", "rb"))
 
 fig = plt.figure(figsize=(8, 4))
 ax = fig.add_subplot(1, 1, 1)

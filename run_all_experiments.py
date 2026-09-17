@@ -26,6 +26,7 @@ import sys
 import time
 
 from utils import gpu_utils
+from utils import params as params_utils
 
 OPERATIONS = ("train", "test")
 
@@ -52,12 +53,26 @@ def describe(params: dict) -> str:
 
 
 def validate(tasks: list[dict]) -> None:
-    """Reject a malformed schedule before a GPU is claimed for it."""
+    """Reject a malformed schedule before a GPU is claimed for it.
+
+    Keys are checked here, for every job, rather than when each job starts:
+    a typo in job 47 should not be found six hours into the queue. Importing
+    the entry points pulls in torch, which is harmless in this process -- it
+    surveys devices through NVML and never creates a CUDA context.
+    """
+    from run_testing import run_testing
+    from run_training import run_training
+    consumer = {"train": run_training, "test": run_testing}
+
     for i, params in enumerate(tasks, 1):
         op = params.get("operation")
         if op not in OPERATIONS:
             raise ValueError(f"job {i}: 'operation' must be one of {OPERATIONS}, "
                              f"got {op!r}")
+        try:
+            params_utils.check_keys(params, consumer[op])
+        except ValueError as exc:
+            raise ValueError(f"job {i}: {exc}") from None
 
 
 def run_schedule(tasks: list[dict], target=_run_job) -> list[tuple[str, int, float]]:

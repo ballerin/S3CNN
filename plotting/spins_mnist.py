@@ -4,21 +4,21 @@ import matplotlib.pyplot as plt
 from matplotlib.transforms import blended_transform_factory
 import pickle
 
-#ours_train_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
-#ours_val_losses = pickle.load(open("experiments/wind->wind/SO3/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
+#ours_train_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_train_losses.pckl", "rb"))
+#ours_val_losses = pickle.load(open("experiments/wind->wind/S3CNN/NR/1/2025-11-19-lr-ln/epoch_val_losses.pckl", "rb"))
 
 
-swscnn_onespin_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/SPINS/NR/2026-03-07-pc-ln-32-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
-swscnn_onespin_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/SPINS/NR/2026-03-07-pc-ln-32-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
+swscnn_onespin_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/SWSCNN/NR/2026-03-07-pc-ln-32-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
+swscnn_onespin_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/SWSCNN/NR/2026-03-07-pc-ln-32-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
 
-swscnn_bothspins_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/SPINS/NR/2025-11-06-pc-ln-32/epoch_train_losses.pckl", "rb"))
-swscnn_bothspins_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/SPINS/NR/2025-11-06-pc-ln-32/epoch_val_losses.pckl", "rb"))
+swscnn_bothspins_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/SWSCNN/NR/2025-11-06-pc-ln-32/epoch_train_losses.pckl", "rb"))
+swscnn_bothspins_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/SWSCNN/NR/2025-11-06-pc-ln-32/epoch_val_losses.pckl", "rb"))
 
-s3cnn_onespin_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/SO3/NR/2026-03-18-lr-ln-32-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
-s3cnn_onespin_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/SO3/NR/2026-03-18-lr-ln-32-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
+s3cnn_onespin_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/S3CNN/NR/2026-03-18-lr-ln-32-ABLATION-only-one-spin/epoch_train_losses.pckl", "rb"))
+s3cnn_onespin_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/S3CNN/NR/2026-03-18-lr-ln-32-ABLATION-only-one-spin/epoch_val_losses.pckl", "rb"))
 
-s3cnn_bothspins_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/SO3/NR/2026-03-13-lr-ln-32/epoch_train_losses.pckl", "rb"))
-s3cnn_bothspins_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/SO3/NR/2026-03-13-lr-ln-32/epoch_val_losses.pckl", "rb"))
+s3cnn_bothspins_train_losses = pickle.load(open("experiments/MNIST-scalar-classification/S3CNN/NR/2026-03-13-lr-ln-32/epoch_train_losses.pckl", "rb"))
+s3cnn_bothspins_val_losses = pickle.load(open("experiments/MNIST-scalar-classification/S3CNN/NR/2026-03-13-lr-ln-32/epoch_val_losses.pckl", "rb"))
 
 fig = plt.figure(figsize=(8, 4))
 

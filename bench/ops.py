@@ -3,7 +3,7 @@ the nonlinearity.
 
 Wigner tables are synthetic tensors of the right shape and dtype. None of
 these kernels branches on its data, so the timings are the same as with the
-real tables, and the suite then runs without the 145 GB `precomp/` directory.
+real tables, and the suite then runs without the `precomp/` directory at all.
 Correctness is the test suite's job, not this one's.
 """
 

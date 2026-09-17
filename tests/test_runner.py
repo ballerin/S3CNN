@@ -78,8 +78,8 @@ def test_validate_rejects_an_unknown_operation(op):
 
 
 def test_describe_skips_keys_the_job_does_not_set():
-    assert runner.describe({"operation": "train", "model_type": "SO3UNet"}) \
-        == "train SO3UNet"
+    assert runner.describe({"operation": "train", "model_type": "S3CNNUNet"}) \
+        == "train S3CNNUNet"
 
 
 def test_summarise_counts_the_failures():
@@ -137,3 +137,50 @@ def test_make_dataloader_does_not_ask_for_persistence_it_cannot_have():
     assert loader.num_workers == 0
     assert not loader.persistent_workers
     assert [len(x) for x, _ in loader] == [2, 2, 2, 2]
+
+
+# ------------------------------------------------------- schedule parameters
+
+def _job(**overrides):
+    job = {"operation": "train", "experiment": "wind->wind",
+           "model_type": "S3CNNUNet", "rotate": "no", "batch_size": 1,
+           "total_epochs": 1}
+    job.update(overrides)
+    return job
+
+
+def test_a_well_formed_job_passes():
+    runner.validate([_job()])
+
+
+@pytest.mark.parametrize("typo, meant", [
+    ("pretrained_wights", "pretrained_weights"),   # shipped in the template
+    ("batch_norm", "use_batch_norm"),              # shipped in the template
+    ("verbos", "verbose"),
+])
+def test_a_misspelled_key_is_rejected_and_the_right_one_suggested(typo, meant):
+    """`params.get` turns a typo into a silent default, which is how both of
+    the template's own misspellings survived."""
+    with pytest.raises(ValueError, match=f"did you mean '{meant}'"):
+        runner.validate([_job(**{typo: True})])
+
+
+def test_the_failing_job_is_named():
+    with pytest.raises(ValueError, match="job 2:"):
+        runner.validate([_job(), _job(verbos=True)])
+
+
+def test_keys_are_checked_against_the_operations_own_entry_point():
+    """`path` is required by `run_testing` and unknown to `run_training`."""
+    test_job = _job(operation="test", path="somewhere", nonlinearity=None,
+                    use_batch_norm=False, use_layer_norm=False)
+    del test_job["total_epochs"]        # trains for epochs; testing does not
+    runner.validate([test_job])
+    with pytest.raises(ValueError, match="'path'"):
+        runner.validate([_job(path="somewhere")])
+
+
+def test_the_shipped_template_validates():
+    """The template is what a new user copies; it should not need fixing."""
+    import TEMPLATE_train_schedule
+    runner.validate(TEMPLATE_train_schedule.create_schedule())

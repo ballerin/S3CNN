@@ -15,6 +15,7 @@ from .SO3fft import SO3FFT, SO3iFFT
 from .SpectralModules import *
 from . import precomp
 from .SO3lib import normalise_spins
+from .architectures import resolve
 from .SO3ConvLayer import SO3Conv, SpinSO3Conv
 
 """
@@ -31,14 +32,15 @@ class SO3Autoencoder(nn.Module):
     def __init__(self,
                  n_alpha: int,
                  n_beta: int,
-                 layer_style:str="so3",
+                 arch:str=None,
+                 layer_style:str=None,
                  fft_method:str="full",
                  resolutions:list=None,
                  widths:list=None,
                  spins:list=None,
                  use_batch_norm:bool=True,
                  use_layer_norm:bool=False,
-                 nonlinearity:str="magnitude",
+                 nonlinearity:str=None,
                  wigner_n0:list=None,
                  wigner_n1:list=None,
                  f_wigner:list = None,
@@ -52,7 +54,8 @@ class SO3Autoencoder(nn.Module):
         Args:
             n_alpha (int): Expected initial/final longitude resolution (number of grid points).
             n_beta (int): Expected initial/final latitude resolution (number of grid points).
-            layer_style (str, optional): Type of layers to use. Either "so3" or "spins". 
+            arch (str, optional): "s3cnn" or "swscnn"; see `modules/architectures.py`.
+            layer_style (str, optional): The pre-M2 spelling of `arch`. 
                 Defaults to "so3".
             fft_method (str, optional): Type of d-matrices to use. Either "full", "delta", 
                 or "prod_delta". Defaults to "full".
@@ -80,29 +83,29 @@ class SO3Autoencoder(nn.Module):
             ValueError: If last spin is not a single value of 0 or 1.
             ValueError: If widths, spins, and resolutions don't have compatible lengths.
             ValueError: If number of layers is less than 2 or not odd-numbered.
-            ValueError: If layer_style is not "so3" or "spins".
-            ValueError: If fft_method is not valid for the chosen layer_style.
+            ValueError: If arch names no known architecture.
+            ValueError: If the nonlinearity is one the architecture does not admit.
+            ValueError: If fft_method is not valid for the chosen architecture.
         """
 
         super(SO3Autoencoder, self).__init__()
-
-        ALLOWED_NONLINEARITIES = ["phase_collapse", "magnitude", "relu", "leaky_relu"]
 
         ### Load paramenters in the class ###
 
         self.n_alpha = n_alpha
         self.n_beta = n_beta
-        self.layer_style = layer_style
+        self.spec = resolve(arch, layer_style)
+        self.arch = self.spec.name
         self.fft_method = fft_method
         self.resolutions = resolutions
         self.widths = widths
         self.spins = spins
         self.use_batch_norm = use_batch_norm
         self.use_layer_norm = use_layer_norm
-        self.nonlinearity_type = nonlinearity
-
-        if self.nonlinearity_type not in ALLOWED_NONLINEARITIES:
-            raise ValueError(f"Nonlinearity must be one of {ALLOWED_NONLINEARITIES}, got {self.nonlinearity_type}")
+        # Which nonlinearities are admissible is a property of the architecture,
+        # not a free choice: see `modules/architectures.py`.
+        self.nonlinearity_type = self.spec.check_sigma(
+            self.spec.sigma if nonlinearity is None else nonlinearity)
 
         # `spins` accepts 0, [0] or [0,1] per layer; normalise so the rest of the
         # constructor can assume lists.
@@ -131,10 +134,15 @@ class SO3Autoencoder(nn.Module):
         if len(self.resolutions) < 2 or len(self.resolutions)% 2 == 0:
             raise ValueError("Layers must be at least two elements and be odd-numbered")
         
-        if self.layer_style not in ["so3", "spins"]:
-            raise ValueError("Layer style must be 'so3' or 'spins', not {}".format(self.layer_style))
+
+        # The group-filter path (scnn) needs SO(3) pooling, which only the flat
+        # SO3CNN has so far; see `modules/architectures.py`.
+        if self.spec.filters == "so3":
+            raise NotImplementedError(
+                f"{type(self).__name__} has no scnn path yet: pooling on the "
+                f"group is not implemented here. Use SO3CNN for scnn.")
         
-        if self.layer_style == "so3":
+        if self.spec.lifts:
             if self.fft_method not in ["full", "delta"]:
                 raise ValueError("Method must be 'full' or 'delta' for SO3 layers, not {}".format(self.fft_method))
 
@@ -178,7 +186,7 @@ class SO3Autoencoder(nn.Module):
         
         # Initialization of the full Wigner d-matrices or bdelta coefficients, depending on the method
         # Either one of those are required for the full SO(3) convolutions. Not needed for the spins method
-        if self.layer_style == "so3":
+        if self.spec.lifts:
             if self.fft_method == "delta":
                 #TODO Re-implement this method
                 # Coefficient sharing with rotator not possible
@@ -255,7 +263,7 @@ class SO3Autoencoder(nn.Module):
         for i in range(len(self.fs_down)):
 
             #SO(3) convolution is n-agnostic
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 self.convolutions_down.append(SO3Conv(
                     nfeature_in=self.fs_down[i]['f_in'],
                     nfeature_out=self.fs_down[i]['f_out'],
@@ -268,7 +276,7 @@ class SO3Autoencoder(nn.Module):
                     L=self.fs_down[i]['L'],
                 ))
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 self.iFFTs_down.append(SO3iFFT(
                     L= self.fs_down[i]['L'],
                     n_alpha = self.fs_down[i]['a'],
@@ -283,7 +291,7 @@ class SO3Autoencoder(nn.Module):
                     n = self.fs_down[i]['out_spins'],
                 ))
             
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 if self.use_batch_norm:
                     self.batchnorm_down.append(
                         FullSpectralBatchNormalization(spins = self.fs_down[i]['out_spins'],
@@ -322,7 +330,7 @@ class SO3Autoencoder(nn.Module):
 
         # UP layers
         for i in range(len(self.fs_up)):
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 self.convolutions_up.append(SO3Conv(
                     nfeature_in=self.fs_up[i]['f_in'],
                     nfeature_out=self.fs_up[i]['f_out'],
@@ -340,7 +348,7 @@ class SO3Autoencoder(nn.Module):
             if i == len(self.fs_up) - 1:
                 continue
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 self.iFFTs_up.append(SO3iFFT(
                     L= self.fs_up[i]['L'],
                     n_alpha = self.fs_up[i]['a'],
@@ -355,7 +363,7 @@ class SO3Autoencoder(nn.Module):
                     n = self.fs_up[i]['out_spins'],
                 ))
             
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 if self.use_batch_norm:
                     self.batchnorm_up.append(
                         FullSpectralBatchNormalization(spins = self.fs_up[i]['out_spins'],
@@ -397,7 +405,7 @@ class SO3Autoencoder(nn.Module):
         self.s2ifft = S2iFFT(L=self.fs_up[-1]['L'], n_alpha=self.n_alpha, n_beta=self.n_beta, n=self.spins[-1])
         
         # Only the last layer needs to convert from SO(3) to S2, which is equivalent to a spectral smoothing
-        if self.layer_style == "so3":
+        if self.spec.lifts:
             self.so3_to_s2 = SO3_to_S2(L=self.resolutions[-1], n=self.spins[-1])
 
     def get_buffered_slice_wigner(self, n=1):
@@ -425,11 +433,11 @@ class SO3Autoencoder(nn.Module):
         return self.get_buffer("wigner_full")
     
     def unpool(self, x, target_L):
-        if self.layer_style == "so3":
+        if self.spec.lifts:
             current_L = len(x)
             for i in range(current_L, target_L+1):
                 x.append(torch.zeros((x[0].shape[0], x[0].shape[1], i*2+1, i*2+1), device=x[0].device))
-        elif self.layer_style == "spins":
+        elif not self.spec.lifts:
             x = F.pad(x, (0, target_L*(target_L+2)+1 - x.shape[-1]))
         return x
 
@@ -460,7 +468,7 @@ class SO3Autoencoder(nn.Module):
             if self.use_layer_norm:
                 x = self.layernorm_down[i](x) # Layer normalization
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 x = self.iFFTs_down[i](x, d_matrices=self.get_buffered_full_wigner())
             else:
                 x = self.iFFTs_down[i](x,
@@ -470,7 +478,7 @@ class SO3Autoencoder(nn.Module):
             x = self.nonlinearities_down[i](x) # Nonlinearity/activation function in the spatial domain
             x = self.dropouts_down[i](x) # Space dropout
 
-            if self.layer_style == "so3":
+            if self.spec.lifts:
                 x = self.spatial_smoothing_down[i](x) # [alpha, beta, gamma] -> [alpha, beta]
 
             # [alpha, beta] -> [l,m]
@@ -505,7 +513,7 @@ class SO3Autoencoder(nn.Module):
                 if self.use_layer_norm:
                     x = self.layernorm_up[i](x) # Layer normalization
 
-                if self.layer_style == "so3":
+                if self.spec.lifts:
                     x = self.iFFTs_up[i](x, d_matrices=self.get_buffered_full_wigner())
                 else:
                     x = self.iFFTs_up[i](x,
@@ -515,7 +523,7 @@ class SO3Autoencoder(nn.Module):
                 x = self.nonlinearities_up[i](x) # Nonlinearity/activation function in the spatial domain
                 x = self.dropouts_up[i](x) # space dropout
                 
-                if self.layer_style == "so3":
+                if self.spec.lifts:
                     x = self.spatial_smoothing_up[i](x) # [alpha, beta, gamma] -> [alpha, beta]
                 x = self.FFTs_up[i](x,
                                     d_matrices_n0=self.get_buffered_slice_wigner(n=0),
@@ -523,7 +531,7 @@ class SO3Autoencoder(nn.Module):
 
         # At this point, if x is in the SO(3) domain, we slice to S2
         # This is done AFTER all UP layers, consistent with SO3UNet
-        if self.layer_style == "so3":
+        if self.spec.lifts:
             x = self.so3_to_s2(x)
 
         # Final inverse FFT to spatial domain

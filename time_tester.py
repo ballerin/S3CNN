@@ -29,7 +29,7 @@ if __name__ == "__main__":
                                                      batch_size = 16,
                                                      shuffle = False, pin_memory=True)
 
-    model = SO3UNet(layer_style="spins",
+    model = SO3UNet(arch="swscnn",
                                 n_alpha = 360, n_beta=179,
                                 resolutions = [179, 150, 100, 50, 100, 150, 179],
                                 widths = [1, 4, 32, 128, 256, 48, 16, 1],

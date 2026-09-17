@@ -35,7 +35,7 @@ def test_grid_model_returns_the_input_grid(name, x):
     assert torch.isfinite(y.real).all() and torch.isfinite(y.imag).all()
 
 
-@pytest.mark.parametrize("name", ["mnist_spins", "mnist_so3"])
+@pytest.mark.parametrize("name", ["mnist_swscnn", "mnist_s3cnn"])
 def test_classifier_returns_real_logits(name, x):
     y = models.build(name)(x)
     assert y.shape == (x.size(0), 10)
@@ -75,7 +75,7 @@ def test_z_rotation_equivariance(name, k, x):
     assert relerr(got, want) < 1e-5
 
 
-@pytest.mark.parametrize("name", ["mnist_spins", "mnist_so3"])
+@pytest.mark.parametrize("name", ["mnist_swscnn", "mnist_s3cnn"])
 @pytest.mark.parametrize("k", ROLLS)
 def test_classifier_is_z_rotation_invariant(name, k, x):
     """The head truncates to L = 0, which is the invariant subspace."""
@@ -96,7 +96,7 @@ def test_pooling_needs_commensurate_grids(k, x):
     is exact everywhere.
     """
     torch.manual_seed(models.SEED)
-    coarse = models.unet("spins", inner=4).eval()
+    coarse = models.unet("swscnn", inner=4).eval()
     got = coarse(torch.roll(x, k, dims=1)).detach().numpy()
     want = torch.roll(coarse(x).detach(), k, dims=1).numpy()
     assert relerr(got, want) > 1e-5
@@ -104,12 +104,12 @@ def test_pooling_needs_commensurate_grids(k, x):
 
 # ---------------------------------------------------- known-defect pinning
 
-@pytest.mark.parametrize("style", ["so3", "full_so3"])
+@pytest.mark.parametrize("style", ["s3cnn", "scnn"])
 def test_batch_norm_works_with_so3_layers(style, x):
     """The SO(3) styles hand the normalisation a list of Wigner blocks, so they
     need `FullSpectralBatchNormalization`, not the flat-layout one."""
     n0, n1, full = tables(models.L, N_BETA)
-    out = SO3CNN(n_alpha=N_ALPHA, n_beta=N_BETA, layer_style=style, resolution=models.L,
+    out = SO3CNN(n_alpha=N_ALPHA, n_beta=N_BETA, arch=style, resolution=models.L,
                  widths=[1, 2, 1], spins=[[0], [0, 1], [0]], use_batch_norm=True,
                  nonlinearity="leaky_relu", wigner_n0=n0, wigner_n1=n1,
                  f_wigner=full).eval()(x)
@@ -119,7 +119,7 @@ def test_batch_norm_works_with_so3_layers(style, x):
 def test_spins_may_be_bare_ints():
     """The documented `[0, [0,1], 0]` form: a bare int is one spin."""
     n0, n1, full = tables(models.L, N_BETA)
-    SO3CNN(n_alpha=N_ALPHA, n_beta=N_BETA, layer_style="spins", resolution=models.L,
+    SO3CNN(n_alpha=N_ALPHA, n_beta=N_BETA, arch="swscnn", resolution=models.L,
            widths=[1, 2, 1], spins=[0, [0, 1], 0], use_batch_norm=False,
            wigner_n0=n0, wigner_n1=n1, f_wigner=full)
 

@@ -25,27 +25,27 @@ N_ALPHA, N_BETA = 360, 179
 # Verbatim from run_training.py, plus a small one for smoke tests.
 CONFIGS = {
     "prod": {
-        "unet_so3": dict(cls=SO3UNet, layer_style="so3", fft_method="full",
+        "unet_s3cnn": dict(cls=SO3UNet, arch="s3cnn", fft_method="full",
                          resolutions=[179, 100, 50, 100, 179],
                          widths=[1, 2, 8, 30, 8, 1],
                          spins=[[1], [0, 1], [0, 1], [0, 1], [0, 1], [1]],
                          nonlinearity="leaky_relu"),
-        "unet_spins": dict(cls=SO3UNet, layer_style="spins",
+        "unet_swscnn": dict(cls=SO3UNet, arch="swscnn",
                            resolutions=[179, 150, 100, 50, 100, 150, 179],
                            widths=[1, 4, 32, 128, 256, 48, 16, 1],
                            spins=[[1]] + [[0, 1]] * 6 + [[1]],
                            nonlinearity="magnitude"),
-        "cnn_so3": dict(cls=SO3CNN, layer_style="so3", fft_method="full",
+        "cnn_s3cnn": dict(cls=SO3CNN, arch="s3cnn", fft_method="full",
                         resolution=179, widths=[1, 2, 4, 2, 1],
                         spins=[[1], [0, 1], [0, 1], [0, 1], [1]],
                         nonlinearity="leaky_relu"),
-        "cnn_spins": dict(cls=SO3CNN, layer_style="spins", resolution=179,
+        "cnn_swscnn": dict(cls=SO3CNN, arch="swscnn", resolution=179,
                           widths=[1, 4, 32, 128, 256, 48, 16, 1],
                           spins=[[1]] + [[0, 1]] * 6 + [[1]],
                           nonlinearity="magnitude"),
     },
     "small": {
-        "cnn_spins": dict(cls=SO3CNN, layer_style="spins", resolution=59,
+        "cnn_swscnn": dict(cls=SO3CNN, arch="swscnn", resolution=59,
                           widths=[1, 2, 2, 1], spins=[[1], [0, 1], [0, 1], [1]],
                           nonlinearity="magnitude"),
     },
@@ -57,7 +57,7 @@ def _build(spec, n_alpha, n_beta, L, device):
     put 11.1 GB into every peak-memory figure."""
     cls, kw = spec["cls"], {k: v for k, v in spec.items() if k != "cls"}
     n0, n1 = slice_tables(L, n_beta, device)
-    full = full_table(L, n_beta, device) if kw["layer_style"] != "spins" else None
+    full = full_table(L, n_beta, device) if kw["arch"] != "swscnn" else None
     return cls(n_alpha=n_alpha, n_beta=n_beta, use_batch_norm=False,
                wigner_n0=n0, wigner_n1=n1, f_wigner=full, **kw)
 
