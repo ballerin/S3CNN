@@ -4,6 +4,8 @@ import torch.nn as nn
 from .SO3lib import from_index_to_beta, process_n, compute_spins
 
 class WeightedReLU(nn.Module):
+    """ReLU on the real and imaginary parts after a learned complex affine map."""
+
     def __init__(self) -> None:
         super().__init__()
         self.a = nn.Parameter(torch.ones((1,),dtype=torch.complex64))
@@ -14,6 +16,8 @@ class WeightedReLU(nn.Module):
         return torch.view_as_complex(torch.relu(torch.view_as_real(z)))
     
 class WeightedLeakyReLU(nn.Module):
+    """`WeightedReLU` with a leaky slope; the default sigma of scnn and s3cnn."""
+
     def __init__(self) -> None:
         super().__init__()
         self.lrelu = torch.nn.LeakyReLU(negative_slope=0.01, inplace=False)
@@ -27,6 +31,8 @@ class WeightedLeakyReLU(nn.Module):
         return torch.view_as_complex(self.lrelu(torch.view_as_real(z)))
     
 class WeightedTanh(nn.Module):
+    """`WeightedReLU` with tanh in place of the ReLU."""
+
     def __init__(self) -> None:
         super().__init__()
         self.tanh = nn.Tanh()
@@ -38,6 +44,8 @@ class WeightedTanh(nn.Module):
         return torch.view_as_complex(self.tanh(torch.view_as_real(z)))
 
 class RealNonlinearity(nn.Module):
+    """Discard the imaginary part, keeping the complex dtype."""
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -47,6 +55,8 @@ class RealNonlinearity(nn.Module):
         return torch.complex(z.real, torch.zeros_like(z.real))
 
 class ComplexDropout(nn.Module):
+    """Dropout over real and imaginary parts jointly, on a single tensor."""
+
     def __init__(self, p) -> None:
         super().__init__()
         self.module = nn.Dropout(p=p)
@@ -58,6 +68,8 @@ class ComplexDropout(nn.Module):
             return z
 
 class SpectralDropout(nn.Module):
+    """`ComplexDropout` over a list of per-order blocks, returning a new list."""
+
     def __init__(self, p) -> None:
         super().__init__()
         self.module = nn.Dropout(p=p)
@@ -68,6 +80,14 @@ class SpectralDropout(nn.Module):
                 for z_l in z]
 
 class MagnitudeNonlinearity(nn.Module):
+    """Act on the magnitude and leave the phase alone, so the spin is preserved.
+
+    That is what makes it admissible for swscnn, where equivariance lives
+    inside the filter and a ReLU on the components would break it. Spin-0
+    channels carry no phase to preserve, so by default they take a leaky ReLU
+    instead (`spin_0_relu`).
+    """
+
     def __init__(self, n:int|list, spin_0_relu=True) -> None:
         super().__init__()
         self.spin_0_relu = spin_0_relu
@@ -105,6 +125,8 @@ class MagnitudeNonlinearity(nn.Module):
         return z
     
 class ComplexLinear(nn.Module):
+    """A linear layer over complex inputs, as four real matrix products."""
+
     def __init__(self, in_features, out_features, bias=True):
         super().__init__()
 
@@ -164,7 +186,7 @@ class PhaseCollapseNonlinearity(nn.Module):
             self.nonlinearity = WeightedLeakyReLU()
         elif self.spin1:
             # If only spin-1 are present, the only activation function that does not break equiv.
-            # is magnitude-dependant
+            # is magnitude-dependent
             self.nonlinearity = MagnitudeNonlinearity(n=self.n)
 
     def forward(self, x):

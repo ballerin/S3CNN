@@ -55,6 +55,11 @@ Spins: the spins, e.g. [0, [0,1], [0,1], [0,1], [0,1], [0,1], 0]
 """
 
 class SO3UNet(nn.Module):
+    """An equivariant UNet: a resolution schedule with skip connections.
+
+    Pooling is spectral truncation rather than pooling on the group, which is
+    why the scnn preset is not available here. See `architectures.py`.
+    """
 
     def __init__(self,
                  n_alpha: int,
@@ -117,7 +122,7 @@ class SO3UNet(nn.Module):
 
         super(SO3UNet, self).__init__()
 
-        ### Load paramenters in the class ###
+        ### Load parameters in the class ###
 
         self.n_alpha = n_alpha
         self.n_beta = n_beta

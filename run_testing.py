@@ -7,19 +7,46 @@ from SphericalDataset import WeatherDataset, SphericalMNISTDataset
 from utils.data_utils import make_dataloader
 from utils.params import check_keys
 
-from modules.CNNUNet import CNNUNet
-from modules.CNNAutoencoder import CNNAutoencoder512
-from modules.MNIST_CNN import CNNMNISTClassifier
-
-
-from modules.SO3UNet import SO3UNet
-from modules.SO3CNN import SO3CNN
-from modules.SO3Autoencoder import SO3Autoencoder
-from modules.MNIST_SO3 import SO3MNISTClassifier
-
+from modules import zoo
 from modules.losses import S2RMSELoss
 
-from trainer_tester import Trainer, Tester
+from trainer_tester import Tester
+
+ALLOWED_ROTATIONS = ["no", "beta", "full"]
+ALLOWED_FFT_METHODS = ["full",] #Delta is not currently supported after refactor
+
+TEST_YEARS = ["2022", "2023"]
+
+#: Prefix of the files a test run writes, by rotation.
+ROTATION_TAG = {"no": "NR", "beta": "RB", "full": "RF"}
+
+
+def make_test_dataset(task: zoo.Task, rotate: str, device):
+    """The test set, rotated once by a fixed list when `rotate` asks for it."""
+    if rotate == "full":
+        rotations_list = pickle.load(open("precomp/FULL_TEST_ROTATIONS.list", "rb"))
+    elif rotate == "beta":
+        rotations_list = pickle.load(open("precomp/BETA_TEST_ROTATIONS.list", "rb"))
+    else:
+        rotations_list = None
+
+    if task.data == "weather":
+        test_dataset = WeatherDataset(root=task.root, folders=TEST_YEARS, train=False,
+                                      in_datatype=task.x, out_datatype=task.y)
+        test_dataset.preload()
+        if rotate != "no":
+            test_dataset.rotate_from_list(device=device, rotations_list=rotations_list,
+                                          rotation_type=rotate)
+    else:
+        # With caching on, the dataset applies the fixed rotation list itself.
+        test_dataset = SphericalMNISTDataset(split="test", mode="spherical",
+                                             n_alpha=task.n_alpha, n_beta=task.n_beta,
+                                             in_datatype=task.x, out_datatype=task.y,
+                                             rotation_type=rotate, rotations_list=rotations_list,
+                                             compute_device=device,
+                                             caching=True, verbose=False)
+    return test_dataset
+
 
 def run_testing(gpu_id: int, # gpu id to use
               params: dict = None, # dictionary of parameters
@@ -33,16 +60,27 @@ def run_testing(gpu_id: int, # gpu id to use
               use_layer_norm: bool = False,
               nonlinearity: str = None,
               ):
+    """
+    Test the best checkpoint of a training run.
 
-    ALLOWED_EXPERIMENTS = ["wind->wind", "temp->wind", "autoencoder", "MNIST-scalar-classification",
-                "MNIST-vf-classification", "MNIST-scalar-to-vector", "MNIST-vector-to-scalar"]
-    ALLOWED_MODEL_TYPES = ["S3CNNUNet", "SwsCNNUNet", "CNNUNet", "S3CNNAutoencoder",
-                "SwsCNNAutoencoder", "CNNautoencoder", "S3CNNFlat", "SwsCNNFlat",
-                "S3CNNMNIST", "SwsCNNMNIST", "CNNMNIST",
-                "S3CNNUNetOnlyOneSpin", "SwsCNNUNetOnlyOneSpin", "S3CNNMNISTOnlyOneSpin", "SwsCNNMNISTOnlyOneSpin"] # Ablations
-    ALLOWED_ROTATIONS = ["no", "offset", "beta", "full"]
-    ALLOWED_FFT_METHODS = ["full",] #Delta is not currently supported after refactor
-    ALLOWED_NONLINEARITIES = [None, "magnitude", "phase_collapse", "relu", "leaky_relu"]
+    The model is built from the same `modules.zoo` entry `run_training` used,
+    so the architectural keys below must match the ones the run was trained
+    with; `load_state_dict` is strict and says so when they do not.
+
+    Parameters:
+    - gpu_id: int, id of the GPU to use
+    - params: dict, dictionary containing all parameters (if provided, overrides other parameters)
+    - model_type: str, name of the model; see `run_training` for the naming
+    - experiment: str, name of the experiment; one of `zoo.EXPERIMENTS`
+    - batch_size: int, size of the test batches
+    - path: str, the training run's directory; weights are read from
+      `snapshots/checkpoint_best.pt` and results written next to it
+    - rotate: str, rotation applied to the test set: "no", "beta" or "full"
+    - fft_method: str, method to use for FFT; only "full" is implemented
+    - use_batch_norm: bool, as in training
+    - use_layer_norm: bool, as in training
+    - nonlinearity: str, as in training; None is the architecture's own
+    """
 
     if params is not None:
         check_keys(params, run_testing)
@@ -54,490 +92,47 @@ def run_testing(gpu_id: int, # gpu id to use
         path = params['path']
 
         fft_method = params.get('fft_method', 'full')
-        if 'nonlinearity' not in params.keys():
-            if model_type in ["S3CNNUNet", "S3CNNAutoencoder", "S3CNNMNIST"]:
-                nonlinearity = "leaky_relu"
-            elif model_type in ["SwsCNNUNet", "SwsCNNAutoencoder", "SwsCNNMNIST"]:
-                nonlinearity = "magnitude"
-            else:
-                #CNNs
-                nonlinearity = None
-        else:
-            nonlinearity = params['nonlinearity']
-        if 'use_batch_norm' not in params.keys():
-            use_batch_norm = False
-        else:
-            use_batch_norm = params['use_batch_norm']
-        if 'use_layer_norm' not in params.keys():
-            use_layer_norm = False
-        else:
-            use_layer_norm = params['use_layer_norm']
-            
+        nonlinearity = params.get('nonlinearity', None)  # None: the architecture's own
+        use_batch_norm = params.get('use_batch_norm', False)
+        use_layer_norm = params.get('use_layer_norm', False)
+
     # Parameters check
-    if model_type not in ALLOWED_MODEL_TYPES:
-        raise ValueError(f"Unknown model type: {model_type}.")
-    if experiment not in ALLOWED_EXPERIMENTS:
-        raise ValueError(f"Unknown experiment: {experiment}.")
+    spec = zoo.spec(experiment, model_type)
+    task = zoo.task(experiment)
     if rotate not in ALLOWED_ROTATIONS:
         raise ValueError(f"Unknown rotation type: {rotate}.")
-    if fft_method is not None and fft_method not in ALLOWED_FFT_METHODS:
+    if fft_method is None:
+        fft_method = "full"
+    if fft_method not in ALLOWED_FFT_METHODS:
         raise ValueError(f"Unknown FFT method: {fft_method}.")
-    if nonlinearity not in ALLOWED_NONLINEARITIES:
-        raise ValueError(f"Unknown nonlinearity: {nonlinearity}.")
     if use_batch_norm and use_layer_norm:
         raise ValueError(f"Cannot use BOTH batch normalization and layer normalization.")
-    
+
     DEVICE = torch.device("cuda", gpu_id)
-    autoencoding = False
-    
+
     weights_path = os.path.join(path, "snapshots/checkpoint_best.pt")
+    tag = ROTATION_TAG[rotate]
+    log_path = os.path.join(path, f"{tag}_testing_log.txt")
+    losses_path = os.path.join(path, f"{tag}_test_losses.pckl")
+    accuracies_path = os.path.join(path, f"{tag}_test_accuracies.pckl")
 
-    if rotate == "no":
-        log_path = os.path.join(path, "NR_testing_log.txt")
-        losses_path = os.path.join(path, "NR_test_losses.pckl")
-        accuracies_path = os.path.join(path, "NR_test_accuracies.pckl")
-    elif rotate == "beta":
-        log_path = os.path.join(path, "RB_testing_log.txt")
-        losses_path = os.path.join(path, "RB_test_losses.pckl")
-        accuracies_path = os.path.join(path, "RB_test_accuracies.pckl")
-    elif rotate == "full":
-        log_path = os.path.join(path, "RF_testing_log.txt")
-        losses_path = os.path.join(path, "RF_test_losses.pckl")
-        accuracies_path = os.path.join(path, "RF_test_accuracies.pckl")
+    model = zoo.build(experiment, model_type, nonlinearity=nonlinearity,
+                      use_batch_norm=use_batch_norm, use_layer_norm=use_layer_norm,
+                      fft_method=fft_method).to(DEVICE)
+    model.load_state_dict(torch.load(weights_path, weights_only=True, map_location=DEVICE))
 
-    if rotate == "full":
-        rotations_list = pickle.load(open("precomp/FULL_TEST_ROTATIONS.list", "rb"))
-    elif rotate == "beta":
-        rotations_list = pickle.load(open("precomp/BETA_TEST_ROTATIONS.list", "rb"))
-    else:
-        rotations_list = None
-    
-    #Initialization
-    train_dataloader = None
+    test_dataset = make_test_dataset(task, rotate, DEVICE)
+    test_dataloader = make_dataloader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    ##############################
-    ###      WIND -> WIND      ###
-    ##############################
-    if experiment == "wind->wind":
-        in_datatype = "complex-vector"
-        out_datatype = "complex-vector"
+    # Classification is scored by accuracy alone.
+    lossfnc = None if task.classification else S2RMSELoss(n_beta=task.n_beta)
 
-        test_dataset = WeatherDataset(root = "dataset/wind->wind/weekly_coarse_torch/",
-                                      folders = ["2022","2023"],
-                                      train = False,
-                                      in_datatype = "vector", out_datatype = "vector")
-        test_dataset.preload()
-
-        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
-                                          shuffle=False)
-        
-        if rotate != "no":
-            test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-        
-        lossfnc = S2RMSELoss(n_beta=179)
-
-        if model_type == "S3CNNUNet":
-             model = SO3UNet(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 100, 50, 100, 179],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity=nonlinearity,
-                            use_batch_norm=use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-             model.load_state_dict(
-                  torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "S3CNNUNetOnlyOneSpin":
-            model = SO3UNet(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 100, 50, 100, 179],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[1,], [1,], [1,], [1,], [1,], [1,]],
-                            nonlinearity= "magnitude", #Forcing magnitude nonlinearity, as spins are all 1
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SwsCNNUNet":
-            model = SO3UNet(arch = "swscnn",
-                            n_alpha = 360, n_beta = 179,
-                            resolutions = [179, 150, 100, 50, 100, 150, 179],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SwsCNNUNetOnlyOneSpin":
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 150, 100, 50, 100, 150, 179],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [1,], [1,], [1,], [1,], [1,], [1,], [1,]],
-                            nonlinearity = "magnitude",
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "S3CNNFlat":
-            share_d_matrices = True
-            model = SO3CNN(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolution = 179,
-                            widths = [1,2,4,2,1],
-                            spins = [[1,],[0,1],[0,1],[0,1],[1,]],
-                            nonlinearity= nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SwsCNNFlat":
-            model = SO3CNN(arch="swscnn",
-                            n_alpha = 360, n_beta=179,
-                            resolution = 179,
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "CNNUNet":
-            model = CNNUNet(n_alpha=360, n_beta=179, in_datatype="complex-vector", out_datatype="complex-vector").to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-    
-    ##############################
-    ###      TEMP -> WIND      ###
-    ##############################
-    elif experiment == "temp->wind":
-        in_datatype = "complex-scalar"
-        out_datatype = "complex-vector"
-
-        test_dataset = WeatherDataset(root = "dataset/temp->wind/weekly_coarse_torch/",
-                                      folders = ["2022","2023"],
-                                      train = False,
-                                      in_datatype="scalar", out_datatype="vector")
-        test_dataset.preload()
-
-        lossfnc = S2RMSELoss(n_beta=179)
-
-        if rotate != "no":
-            test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-        
-        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
-                                          shuffle=False)
-        
-        
-        if model_type == "S3CNNUNet":
-            model = SO3UNet(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 100, 50, 100, 179],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                  torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SwsCNNUNet":
-            model = SO3UNet(arch = "swscnn",
-                            n_alpha = 360, n_beta = 179,
-                            resolutions = [179, 150, 100, 50, 100, 150, 179],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity=nonlinearity,
-                            use_batch_norm=use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "CNNUNet":
-            model = CNNUNet(n_alpha=360, n_beta=179, in_datatype="complex-scalar", out_datatype="complex-vector").to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        
-        
-
-    #############################
-    ###      AUTOENCODER      ###
-    #############################
-    elif experiment == "autoencoder":
-        autoencoding = True
-        in_datatype = "complex-vector"
-        out_datatype = "complex-vector"
-
-        test_dataset = WeatherDataset(root = "dataset/wind->wind/weekly_coarse_torch/",
-                                      folders = ["2022","2023"],
-                                      train = False,
-                                      in_datatype = "vector", out_datatype = "vector")
-        test_dataset.preload()
-
-        
-        if rotate != "no":
-            test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-        
-        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
-                                          shuffle=False)
-        
-        lossfnc = S2RMSELoss(n_beta=179)
-
-        if model_type == "S3CNNAutoencoder":
-            model = SO3Autoencoder(arch = "s3cnn",
-                            n_alpha = 360, n_beta = 179,
-                            resolutions = [179, 100, 50, 5, 50, 100, 179],
-                            widths = [1, 2, 4, 7, 7, 4, 2, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "SwsCNNAutoencoder":
-            model = SO3Autoencoder(arch = "swscnn",
-                            n_alpha = 360, n_beta = 179,
-                            resolutions = [179, 150, 100, 50, 5, 50, 100, 150, 179],
-                            widths = [1, 16, 24, 32, 7, 7, 32, 24, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        elif model_type == "CNNautoencoder":
-            model = CNNAutoencoder512().to(DEVICE)
-            model.load_state_dict(
-                 torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-        
-    #######################
-    ###      MNIST      ###
-    #######################
-
-    # SCALAR MNIST CLASSIFICATION
-    elif experiment == "MNIST-scalar-classification":
-        in_datatype = "complex-scalar"
-        out_datatype = "label"
-
-        test_dataset = SphericalMNISTDataset(split="test", mode="spherical",
-                                            n_alpha=120, n_beta=59,
-                                            in_datatype="scalar", out_datatype="label",
-                                            rotation_type=rotate, rotations_list=rotations_list,
-                                            compute_device=DEVICE,
-                                            caching=True, verbose=False)
-        caching = True
-        if not caching and rotate != "no":
-            test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-        
-        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
-                                          shuffle=False)
-        
-        lossfnc = None  # No loss function needed for classification test, as we use accuracy
-
-        if model_type == "S3CNNMNIST": 
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       arch="s3cnn", fft_method="full",
-                                       widths = [1, 2, 8, 32, 128, 512],
-                                       resolutions = [59, 38, 14, 8, 2, 0],
-                                       spins=[[0,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       use_batch_norm=use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       nonlinearity=nonlinearity).to(DEVICE)
-        elif model_type == "S3CNNMNISTOnlyOneSpin": 
-            model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59, head = True,
-                                       arch = "s3cnn", fft_method = "full",
-                                       widths = [1, 2, 8, 32, 128, 512],
-                                       resolutions = [59, 38, 14, 8, 2, 0],
-                                       spins = [[0,], [0,], [0,], [0,], [0,], [0,]],
-                                       nonlinearity = nonlinearity,
-                                       use_batch_norm = use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       ).to(DEVICE)
-        elif model_type == "SwsCNNMNIST":
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       arch="swscnn", fft_method="full",
-                                       widths=[1, 4, 16, 32, 64, 128, 256, 512],
-                                       resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
-                                       spins=[[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       use_batch_norm=use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       nonlinearity=nonlinearity).to(DEVICE)
-        elif model_type == "SwsCNNMNISTOnlyOneSpin": 
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       arch="swscnn", fft_method="full",
-                                       widths=[1, 4, 16, 32, 64, 128, 256, 512],
-                                       resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
-                                       spins=[[0,], [0,], [0,], [0,], [0,], [0,], [0,], [0,]],
-                                       nonlinearity="magnitude",
-                                       use_batch_norm=use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       ).to(DEVICE)
-        elif model_type == "CNNMNIST":
-            model = CNNMNISTClassifier(in_datatype="complex-scalar",
-                                       n_alpha=120, n_beta=59,
-                                       widths=[1, 8, 32, 128, 256, 512]).to(DEVICE)
-
-        model.load_state_dict(
-                torch.load(weights_path, map_location='cuda:'+str(gpu_id)), strict=True)
-    
-    # VECTOR-FIELD MNIST CLASSIFICATION
-    elif experiment == "MNIST-vf-classification":
-        in_datatype = "complex-vector"
-        out_datatype = "label"
-
-        test_dataset = SphericalMNISTDataset(split="test", mode="spherical",
-                                            n_alpha=120, n_beta=59,
-                                            in_datatype="vector", out_datatype="label")
-
-        if rotate != "no":
-            test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-
-        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
-                                          shuffle=False)
-        
-        lossfnc = None  # No loss function needed for classification test, as we use accuracy
-        
-        if model_type == "S3CNNMNIST": 
-            model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59,
-                                       arch = "s3cnn", fft_method = "full",
-                                       widths = [1, 2, 8, 32, 128, 512],
-                                       resolutions = [59, 38, 14, 8, 2, 0],
-                                       spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       nonlinearity = nonlinearity,
-                                       use_batch_norm = use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       ).to(DEVICE)
-        elif model_type == "SwsCNNMNIST":
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       arch="swscnn", fft_method="full",
-                                       widths=[1, 4, 16, 64, 256, 512],
-                                       resolutions=[59, 50, 25, 10, 2, 0],
-                                       spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       nonlinearity=nonlinearity,
-                                       use_batch_norm = use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       ).to(DEVICE)
-        elif model_type == "CNNMNIST":
-            model = CNNMNISTClassifier(in_datatype="complex-vector",
-                                       n_alpha=120, n_beta=59,
-                                       widths=[2, 8, 32, 128, 256, 512]).to(DEVICE)
-
-        model.load_state_dict(
-                torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-    
-    # SCALAR-TO-VECTOR MNIST
-    elif experiment == "mnist-scalar-to-vector":
-        in_datatype = "complex-scalar"
-        out_datatype = "complex-vector"
-
-        test_dataset = SphericalMNISTDataset(split="test", mode="spherical",
-                                             n_alpha=120, n_beta=59,
-                                             in_datatype="scalar", out_datatype="vector")
-
-        if rotate != "no":
-            test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-            
-        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
-                                          shuffle=True)
-
-        lossfnc = S2RMSELoss(n_beta=59)
-
-        if model_type == "S3CNNUNet":
-            model = SO3UNet(arch="s3cnn", fft_method="full",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 25, 50, 59],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-        elif model_type == "SwsCNNUNet":
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 40, 30, 40, 50, 59],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-        elif model_type == "CNNUNet":
-            model = CNNUNet(in_datatype="complex-scalar", out_datatype="complex-vector")
-
-        model.load_state_dict(
-                torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-    
-    # VECTOR-TO-SCALAR MNIST
-    elif experiment == "mnist-vector-to-scalar":
-        in_datatype = "complex-vector"
-        out_datatype = "complex-scalar"
-
-        test_dataset = SphericalMNISTDataset(split="test", mode="spherical",
-                                             n_alpha=120, n_beta=59,
-                                             in_datatype="vector", out_datatype="scalar")
-
-        if rotate != "no":
-            test_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-            
-        test_dataloader = make_dataloader(test_dataset, batch_size=batch_size,
-                                          shuffle=True)
-
-        lossfnc = S2RMSELoss(n_beta=59)
-
-        if model_type == "S3CNNUNet":
-            model = SO3UNet(arch="s3cnn", fft_method="full",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 25, 50, 59],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-        elif model_type == "SwsCNNUNet":
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 40, 50, 40, 50, 59],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            ).to(DEVICE)
-        elif model_type == "CNNUNet":
-            model = CNNUNet(in_datatype="complex-vector", out_datatype="complex-scalar")
-
-        model.load_state_dict(
-                torch.load(weights_path, weights_only=True, map_location='cuda:'+str(gpu_id)))
-    
     with open(log_path,'w') as ff:
             ff.write(f"-- BEGIN OF LOG --\n")
-    
-    
+
     tester = Tester(model = model,
-                    in_datatype = in_datatype,
-                    out_datatype = out_datatype,
+                    in_datatype = task.in_datatype,
+                    out_datatype = task.out_datatype,
                     dataloader = test_dataloader,
                     lossfnc = lossfnc,
                     gpu_id = gpu_id,
@@ -545,9 +140,9 @@ def run_testing(gpu_id: int, # gpu id to use
                     log_path = log_path,
                     losses_path = losses_path,
                     accuracies_path = accuracies_path,
-                    autoencoding = autoencoding,
+                    autoencoding = task.autoencoding,
                     rotate = rotate,
-                    train_dataloader = train_dataloader
+                    train_dataloader = None,
                     )
 
     tester.test()

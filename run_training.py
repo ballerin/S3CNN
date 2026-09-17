@@ -10,19 +10,18 @@ from SphericalDataset import WeatherDataset, SphericalMNISTDataset
 from utils.data_utils import make_dataloader
 from utils.params import check_keys
 
-from modules.CNNUNet import CNNUNet
-from modules.CNNAutoencoder import CNNAutoencoder512
-from modules.MNIST_CNN import CNNMNISTClassifier
-
-
-from modules.SO3UNet import SO3UNet
-from modules.SO3Autoencoder import SO3Autoencoder
-from modules.SO3CNN import SO3CNN
-from modules.MNIST_SO3 import SO3MNISTClassifier
-
+from modules import zoo
 from modules.losses import S2MSELoss
 
 from trainer_tester import Trainer
+
+ALLOWED_ROTATIONS = ["no", "offset", "beta", "full"]
+ALLOWED_FFT_METHODS = ["full",] #Delta is not currently supported after refactor
+
+#: Training years start here; `dataset_size` counts them.
+FIRST_TRAIN_YEAR = 2000
+VAL_YEARS = ["2020", "2021"]
+
 
 def get_experiment_path(experiment:str, mode:str, rotate:str, dataset_size:int, log_id:str|int):
     log =  "experiments/"+experiment+"/"+mode+"/"
@@ -39,6 +38,40 @@ def get_experiment_path(experiment:str, mode:str, rotate:str, dataset_size:int, 
     log += str(log_id)+"/"
     return log
 
+
+def make_datasets(task: zoo.Task, rotate: str, dataset_size: int, device,
+                  preload_dataset: bool, verbose: bool):
+    """Train and validation sets; validation is rotated once, by a fixed list."""
+    if rotate == "full":
+        rotations_list = pickle.load(open("precomp/FULL_VALIDATION_ROTATIONS.list", "rb"))
+    elif rotate == "beta":
+        rotations_list = pickle.load(open("precomp/BETA_VALIDATION_ROTATIONS.list", "rb"))
+    else:
+        rotations_list = None
+
+    if task.data == "weather":
+        if dataset_size is None:
+            raise ValueError("Weather experiments need a dataset_size (number of training years).")
+        train_folders = [str(year) for year in range(FIRST_TRAIN_YEAR, FIRST_TRAIN_YEAR+dataset_size)]
+        train_dataset = WeatherDataset(root=task.root, folders=train_folders, train=True,
+                                       in_datatype=task.x, out_datatype=task.y)
+        val_dataset = WeatherDataset(root=task.root, folders=VAL_YEARS, train=False,
+                                     in_datatype=task.x, out_datatype=task.y)
+        train_dataset.preload()
+        val_dataset.preload()
+        if rotate != "no":
+            val_dataset.rotate_from_list(device=device, rotations_list=rotations_list,
+                                         rotation_type=rotate)
+    else:
+        common = dict(mode="spherical", n_alpha=task.n_alpha, n_beta=task.n_beta,
+                      in_datatype=task.x, out_datatype=task.y, rotation_type=rotate,
+                      compute_device=device, caching=preload_dataset, verbose=verbose)
+        train_dataset = SphericalMNISTDataset(split="train", **common)
+        val_dataset = SphericalMNISTDataset(split="val", rotations_list=rotations_list, **common)
+
+    return train_dataset, val_dataset
+
+
 def run_training(gpu_id: int, # gpu id to use
                  params: dict = None,
                  experiment: str = None,
@@ -50,6 +83,7 @@ def run_training(gpu_id: int, # gpu id to use
                  early_stopping:int = 10,
                  save_every: int = -1, # When to save a complete snapshot of the model
                  batch_size: int = 1,
+                 lr: float = 1e-3,
                  use_batch_norm: bool = False,
                  use_layer_norm: bool = False,
                  fft_method:str = "full", # Only for SO(3) models
@@ -63,22 +97,31 @@ def run_training(gpu_id: int, # gpu id to use
     """
     Run the training of the model with the given parameters.
 
+    The model for `(experiment, model_type)` and the data it reads come from
+    `modules.zoo`, which `run_testing` reads as well.
+
     Parameters:
     - gpu_id: int, id of the GPU to use
     - params: dict, dictionary containing all parameters (if provided, overrides other parameters)
-    - model_type: str, type of the model to use (e.g., "S3CNNUNet", "CNNUNet", etc.)
-    - nonlinearity: str, type of nonlinearity to use
-    - experiment: str, name of the experiment (e.g., "wind->wind", "temp->wind", etc.)
+    - experiment: str, name of the experiment; one of `zoo.EXPERIMENTS`
+    - model_type: str, name of the model; one of the pairs in `zoo.ZOO` for this experiment
+    - nonlinearity: str, type of nonlinearity to use; None is the architecture's own
     - total_epochs: int, total number of epochs to train
     - starting_epoch: int, epoch number to start training from (useful for resuming)
     - pretrained_weights: str, path to pretrained weights to initialize the model
     - early_stopping: int, number of epochs to wait for improvement before stopping
     - save_every: int, how often to save the model
     - batch_size: int, size of the batches for training
+    - lr: float, Adam learning rate. NOT TUNED for the current code: 1e-3 was
+      chosen when the convolution kernels were initialised as a real constant.
+      M1 replaced that with complex Glorot, which raises the output RMS at
+      initialisation 40-200x, and the rate has not been re-tuned since. Sweep
+      it before comparing against published numbers, then fix the default here.
     - use_batch_norm: bool, whether to use batch normalization
-    - fft_method: str, method to use for FFT (e.g., "full", "delta", etc.)
-    - dataset_size: int, size of the dataset to use (from 1 to 10)
-    - rotate: str, rotation method to use (e.g., "no", "random", "beta", "full")
+    - use_layer_norm: bool, whether to use layer normalization
+    - fft_method: str, method to use for FFT; only "full" is implemented
+    - dataset_size: int, number of training years for weather experiments (1 to 10)
+    - rotate: str, rotation augmentation: "no", "offset", "beta" or "full"
     - log_id: str, unique identifier for this run of this experiment (for logging purposes)
     - preload_dataset: bool, whether to preload the whole dataset into RAM memory
     - gradient_accumulation: int, optimiser steps are taken every this many batches
@@ -93,29 +136,13 @@ def run_training(gpu_id: int, # gpu id to use
     - "MNIST-scalar-to-vector": MNIST scalar to vector prediction
     - "MNIST-vector-to-scalar": MNIST vector to scalar prediction
 
-    Model types:
-    - "S3CNNUNet": SO(3) equivariant UNet with full SO(3) layers
-    - "SwsCNNUNet": SO(3) equivariant UNet with spins layers
-    - "CNNUNet": CNN UNet
-    - "S3CNNAutoencoder": SO(3) equivariant autoencoder with full SO(3) layers
-    - "SwsCNNAutoencoder": SO(3) equivariant autoencoder with spins layers
-    - "CNNautoencoder": CNN autoencoder
-    - "S3CNNFlat": SO(3) equivariant flat CNN (no pooling/skip connections) for ablation
-    - "SwsCNNFlat": SO(3) equivariant flat CNN with spins layers for ablation
-    - "S3CNNMNIST": SO(3) equivariant UNet/Classifier for MNIST with full SO(3) layers
-    - "SwsCNNMNIST": SO(3) equivariant UNet/Classifier for MNIST with spins layers
-    - "CNNMNIST": CNN for MNIST classification
+    Model types are named after the architecture (see `modules/architectures.py`):
+    - "S3CNN*": s3cnn, ours -- SO(3) convolution, projected back to S2 after every nonlinearity
+    - "SwsCNN*": swscnn, Esteves et al. 2020, 2023 -- spin-weighted filters, never leaves S2
+    - "CNN*": planar CNN baseline on the lat/lon grid
+    and after the topology: "*UNet", "*Autoencoder", "*MNIST" (classifier), and
+    the ablations "*Flat" (no pooling or skips) and "*OnlyOneSpin".
     """
-
-    ALLOWED_EXPERIMENTS = ["wind->wind", "temp->wind", "autoencoder", "MNIST-scalar-classification",
-                "MNIST-vf-classification", "MNIST-scalar-to-vector", "MNIST-vector-to-scalar"]
-    ALLOWED_MODEL_TYPES = ["S3CNNUNet", "SwsCNNUNet", "CNNUNet", "S3CNNAutoencoder",
-                "SwsCNNAutoencoder", "CNNautoencoder", "S3CNNFlat", "SwsCNNFlat",
-                "S3CNNMNIST", "SwsCNNMNIST", "CNNMNIST",
-                "S3CNNUNetOnlyOneSpin", "SwsCNNUNetOnlyOneSpin", "S3CNNMNISTOnlyOneSpin", "SwsCNNMNISTOnlyOneSpin"] # Ablations
-    ALLOWED_ROTATIONS = ["no", "offset", "beta", "full"]
-    ALLOWED_FFT_METHODS = ["full",] #Delta is not currently supported after refactor
-    ALLOWED_NONLINEARITIES = [None, "magnitude", "phase_collapse", "relu", "leaky_relu"]
 
     if params is not None:
         # Everything below reads `params` with `.get`, so a misspelled key would
@@ -129,11 +156,13 @@ def run_training(gpu_id: int, # gpu id to use
         batch_size = params['batch_size']
         rotate = params['rotate']
 
+        nonlinearity = params.get('nonlinearity', None)  # None: the architecture's own
         fft_method = params.get('fft_method', 'full')
         early_stopping = params.get('early_stopping', total_epochs)
         starting_epoch = params.get('starting_epoch', 0)
         save_every = params.get('save_every', -1)  # Do not save by default
         pretrained_weights = params.get('pretrained_weights', None)
+        lr = params.get('lr', lr)
         use_batch_norm = params.get('use_batch_norm', False)
         use_layer_norm = params.get('use_layer_norm', False)
         log_id = params.get('log_id', None)
@@ -142,580 +171,39 @@ def run_training(gpu_id: int, # gpu id to use
         verbose = params.get('verbose', verbose)
         gradient_accumulation = max(params.get('gradient_accumulation', 1), 1)
 
-        if 'nonlinearity' in params:
-            nonlinearity = params['nonlinearity']
-        elif model_type in ["S3CNNUNet", "S3CNNAutoencoder", "S3CNNFlat", "S3CNNMNIST"]:
-            nonlinearity = "leaky_relu"
-        elif model_type in ["SwsCNNUNet", "SwsCNNAutoencoder", "SwsCNNFlat",
-                            "SwsCNNMNIST"]:
-            nonlinearity = 'magnitude'
-        else:
-            nonlinearity = None  # CNNs
-    
     # Parameters check
-    if model_type not in ALLOWED_MODEL_TYPES:
-        raise ValueError(f"Unknown model type: {model_type}.")
-    if experiment not in ALLOWED_EXPERIMENTS:
-        raise ValueError(f"Unknown experiment: {experiment}.")
+    spec = zoo.spec(experiment, model_type)
+    task = zoo.task(experiment)
     if rotate not in ALLOWED_ROTATIONS:
         raise ValueError(f"Unknown rotation type: {rotate}.")
-    if fft_method is not None and fft_method not in ALLOWED_FFT_METHODS:
+    if fft_method is None:
+        fft_method = "full"
+    if fft_method not in ALLOWED_FFT_METHODS:
         raise ValueError(f"Unknown FFT method: {fft_method}.")
-    if nonlinearity not in ALLOWED_NONLINEARITIES:
-        raise ValueError(f"Unknown nonlinearity: {nonlinearity}.")
     if use_batch_norm and use_layer_norm:
         raise ValueError(f"Cannot use BOTH batch normalization and layer normalization.")
 
-    if fft_method is None:
-        fft_method = "full"
+    log_id = str(int(time.time())) if log_id is None else str(log_id) #This is the id for the unique run
+    logs_path = get_experiment_path(experiment, spec.mode, rotate, dataset_size, log_id)
 
-    if log_id is None:
-        log_id = str(int(time.time())) #This is the id for the unique run
-    else:
-        log_id = str(log_id)
-    
     DEVICE = torch.device("cuda", gpu_id)
-    autoencoding = False # Default is False, set to True for autoencoder experiments
-    share_d_matrices = False
 
-    if rotate == "full":
-        rotations_list = pickle.load(open("precomp/FULL_VALIDATION_ROTATIONS.list", "rb"))
-    elif rotate == "beta":
-        rotations_list = pickle.load(open("precomp/BETA_VALIDATION_ROTATIONS.list", "rb"))
-    else:
-        rotations_list = None
-    
-    ##############################
-    ###      WIND -> WIND      ###
-    ##############################
-    if experiment == "wind->wind":
-        in_datatype = "complex-vector"
-        out_datatype = "complex-vector"
+    # The model is built before the data is loaded: a nonlinearity its
+    # architecture rejects should fail in seconds, not after the preload.
+    model = zoo.build(experiment, model_type, nonlinearity=nonlinearity,
+                      use_batch_norm=use_batch_norm, use_layer_norm=use_layer_norm,
+                      fft_method=fft_method)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-        train_folders = [str(year) for year in range(2000,2000+dataset_size)]
-        train_dataset = WeatherDataset(root = "dataset/wind->wind/weekly_coarse_torch/",
-                                                    folders=train_folders,
-                                       train=True,
-                                       in_datatype="vector", out_datatype="vector")
-        val_dataset = WeatherDataset(root = "dataset/wind->wind/weekly_coarse_torch/",
-                                     folders=["2020","2021"],
-                                     train=False,
-                                     in_datatype="vector", out_datatype="vector")
-        train_dataset.preload()
-        val_dataset.preload()
+    train_dataset, val_dataset = make_datasets(task, rotate, dataset_size, DEVICE,
+                                               preload_dataset, verbose)
+    train_dataloader = make_dataloader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_dataloader = make_dataloader(val_dataset, batch_size=batch_size, shuffle=False)
 
-        if rotate != "no":
-            val_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-
-        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
-                                           shuffle=True)
-        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
-                                         shuffle=False)
-        
-        # model type
-        if model_type == "S3CNNUNet":
-            mode = "S3CNN"
-            share_d_matrices = True
-            model = SO3UNet(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 100, 50, 100, 179],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity= nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "S3CNNUNetOnlyOneSpin":
-            mode = "S3CNN"
-            share_d_matrices = True
-            model = SO3UNet(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 100, 50, 100, 179],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[1,], [1,], [1,], [1,], [1,], [1,]],
-                            nonlinearity= nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SwsCNNUNet":
-            mode = "SWSCNN"
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 150, 100, 50, 100, 150, 179],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SwsCNNUNetOnlyOneSpin":
-            mode = "SWSCNN"
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 150, 100, 50, 100, 150, 179],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [1,], [1,], [1,], [1,], [1,], [1,], [1,]],
-                            nonlinearity = "magnitude",
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "S3CNNFlat":
-            mode = "S3CNN_FLAT"
-            share_d_matrices = True
-            model = SO3CNN(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolution = 179,
-                            widths = [1,2,4,2,1],
-                            spins = [[1,],[0,1],[0,1],[0,1],[1,]],
-                            nonlinearity= nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SwsCNNFlat":
-            mode = "SWSCNN"
-            model = SO3CNN(arch="swscnn",
-                            n_alpha = 360, n_beta=179,
-                            resolution = 179,
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "CNNUNet":
-            mode = "CNN"
-            model = CNNUNet(n_alpha=360, n_beta=179, in_datatype="complex-vector", out_datatype="complex-vector")
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        else:
-            raise Exception(f"Combination {model_type} and {experiment} not supported.")
-        
-        lossfnc = S2MSELoss()
-    
-    ##############################
-    ###      TEMP -> WIND      ###
-    ##############################
-    elif experiment == "temp->wind":
-        in_datatype = "complex-scalar"
-        out_datatype = "complex-vector"
-
-        train_folders = [str(year) for year in range(2000,2000+dataset_size)]
-        train_dataset = WeatherDataset(root = "dataset/temp->wind/weekly_coarse_torch/",
-                                               folders=train_folders,
-                                               train=True,
-                                               in_datatype="scalar", out_datatype="vector")
-        val_dataset = WeatherDataset(root = "dataset/temp->wind/weekly_coarse_torch/",
-                                             folders=["2020","2021"],
-                                             train=False,
-                                             in_datatype="scalar", out_datatype="vector")
-        train_dataset.preload()
-        val_dataset.preload()
-
-        if rotate != "no":
-            val_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-
-        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
-                                           shuffle=True)
-        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
-                                         shuffle=False)
-
-        # model type
-        if model_type == "S3CNNUNet":
-            mode = "S3CNN"
-            share_d_matrices = True
-            model = SO3UNet(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 100, 50, 100, 179],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SwsCNNUNet":
-            mode = "SWSCNN"
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 360, n_beta=179,
-                            resolutions = [179, 150, 100, 50, 100, 150, 179],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "S3CNNFlat":
-            mode = "S3CNN"
-            share_d_matrices = True
-            model = SO3CNN(arch="s3cnn",
-                            fft_method="full",
-                            n_alpha = 360, n_beta=179,
-                            resolution = 179,
-                            widths = [1, 1],
-                            spins = [[0,], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SwsCNNFlat":
-            mode = "SWSCNN"
-            model = SO3CNN(arch="swscnn",
-                            n_alpha = 360, n_beta=179,
-                            resolution = 179,
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "CNNUNet":
-            mode = "CNN"
-            model = CNNUNet(n_alpha=360, n_beta=179, in_datatype="complex-scalar", out_datatype="complex-vector")
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        else:
-            raise Exception(f"Combination {model_type} and {experiment} not supported.")
-
-        lossfnc = S2MSELoss()
-    
-    #############################
-    ###      AUTOENCODER      ###
-    #############################
-    elif experiment == "autoencoder":
-        in_datatype = "complex-vector"
-        out_datatype = "complex-vector"
-        autoencoding = True
-        train_folders = [str(year) for year in range(2000,2000+dataset_size)]
-        train_dataset = WeatherDataset(root = "dataset/wind->wind/weekly_coarse_torch/",
-                                        folders=train_folders,
-                                        train=True,
-                                        in_datatype="vector", out_datatype="vector")
-        val_dataset = WeatherDataset(root = "dataset/wind->wind/weekly_coarse_torch/",
-                                        folders=["2020","2021"],
-                                        train=False,
-                                        in_datatype="vector", out_datatype="vector")
-        train_dataset.preload()
-        val_dataset.preload()
-
-        if rotate != "no":
-            val_dataset.rotate_from_list(device=DEVICE, rotations_list=rotations_list,
-                                         rotation_type=rotate)
-
-        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
-                                           shuffle=True)
-        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
-                                         shuffle=False)
-        
-        # model type
-        if model_type == "S3CNNAutoencoder": 
-            mode = "S3CNN"
-            share_d_matrices = True
-            model = SO3Autoencoder(arch = "s3cnn",
-                            n_alpha = 360, n_beta = 179,
-                            resolutions = [179, 100, 50, 5, 50, 100, 179],
-                            widths = [1, 2, 4, 7, 7, 4, 2, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SwsCNNAutoencoder": 
-            mode = "SWSCNN"
-            model = SO3Autoencoder(arch = "swscnn",
-                            n_alpha = 360, n_beta = 179,
-                            resolutions = [179, 150, 100, 50, 5, 50, 100, 150, 179],
-                            widths = [1, 16, 24, 32, 7, 7, 32, 24, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity = nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "CNNautoencoder":
-            mode = "CNN"
-            model = CNNAutoencoder512()
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        else:
-            raise Exception(f"Combination {model_type} and {experiment} not supported.")
-        
-        lossfnc = S2MSELoss()
-
-    #######################
-    ###      MNIST      ###
-    #######################
-
-    # SCALAR MNIST CLASSIFICATION
-    elif experiment == "MNIST-scalar-classification":
-        in_datatype = "complex-scalar"
-        out_datatype = "label"
-
-        train_dataset = SphericalMNISTDataset(split = "train", mode = "spherical",
-                                              n_alpha = 120, n_beta = 59,
-                                              in_datatype = "scalar", out_datatype = "label",
-                                              rotation_type = rotate, compute_device = DEVICE,
-                                              caching = preload_dataset, verbose = verbose)
-
-        val_dataset = SphericalMNISTDataset(split = "val", mode = "spherical",
-                                            n_alpha = 120, n_beta = 59,
-                                            in_datatype = "scalar", out_datatype = "label",
-                                            rotation_type = rotate, rotations_list = rotations_list,
-                                            compute_device = DEVICE,
-                                            caching = preload_dataset, verbose = verbose)
-
-        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
-                                           shuffle=True)
-        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
-                                         shuffle=False)
+    if task.classification:
         lossfnc = torch.nn.CrossEntropyLoss()
-
-        if model_type == "S3CNNMNIST": 
-            mode = "S3CNN"
-            model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59, head = True,
-                                       arch = "s3cnn", fft_method = "full",
-                                       widths = [1, 2, 8, 32, 128, 512],
-                                       resolutions = [59, 38, 14, 8, 2, 0],
-                                       spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       nonlinearity = nonlinearity,
-                                       use_batch_norm = use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "S3CNNMNISTOnlyOneSpin": 
-            mode = "S3CNN"
-            model = SO3MNISTClassifier(n_alpha = 120, n_beta = 59, head = True,
-                                       arch = "s3cnn", fft_method = "full",
-                                       widths = [1, 2, 8, 32, 128, 512],
-                                       resolutions = [59, 38, 14, 8, 2, 0],
-                                       spins = [[0,], [0,], [0,], [0,], [0,], [0,]],
-                                       nonlinearity = nonlinearity,
-                                       use_batch_norm = use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SwsCNNMNIST": 
-            mode = "SWSCNN"
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       arch="swscnn", fft_method="full",
-                                       widths=[1, 4, 16, 32, 64, 128, 256, 512],
-                                       resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
-                                       spins=[[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       nonlinearity=nonlinearity,
-                                       use_batch_norm=use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SwsCNNMNISTOnlyOneSpin": 
-            mode = "SWSCNN"
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59, head=True,
-                                       arch="swscnn", fft_method="full",
-                                       widths=[1, 4, 16, 32, 64, 128, 256, 512],
-                                       resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
-                                       spins=[[0,], [0,], [0,], [0,], [0,], [0,], [0,], [0,]],
-                                       nonlinearity="magnitude",
-                                       use_batch_norm=use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "CNNMNIST":
-            mode = "CNN"
-            model = CNNMNISTClassifier(in_datatype="complex-scalar",
-                                       n_alpha=120, n_beta=59,
-                                       widths=[1, 8, 32, 128, 256, 512])
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        else:
-            raise Exception(f"Combination {model_type} and {experiment} not supported.")
-        
-    # VECTOR-FIELD MNIST CLASSIFICATION
-    elif experiment == "MNIST-vf-classification":
-        in_datatype = "complex-vector"
-        out_datatype = "label"
-
-        train_dataset = SphericalMNISTDataset(split="train", mode="spherical",
-                                              n_alpha=120, n_beta=59,
-                                              in_datatype="vector", out_datatype="label",
-                                              rotation_type=rotate, compute_device=DEVICE,
-                                              caching=preload_dataset, verbose=verbose)
-        
-        val_dataset = SphericalMNISTDataset(split="val", mode="spherical",
-                                            n_alpha=120, n_beta=59,
-                                            in_datatype="vector", out_datatype="label",
-                                            rotation_type=rotate, rotations_list=rotations_list,
-                                            compute_device=DEVICE,
-                                            caching=preload_dataset, verbose=verbose)
-
-        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
-                                           shuffle=True)
-        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
-                                         shuffle=False)
-        
-        lossfnc = torch.nn.CrossEntropyLoss()
-        
-        if model_type == "S3CNNMNIST": 
-            mode = "S3CNN"
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       arch="s3cnn", fft_method="full",
-                                       #widths=[1, 4, 16, 64, 256, 512],
-                                       #resolutions=[59, 50, 25, 10, 2, 0],
-                                       widths = [1, 2, 8, 32, 128, 512],
-                                       resolutions = [59, 38, 14, 8, 2, 0],
-                                       spins=[[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       nonlinearity=nonlinearity,
-                                       use_batch_norm=use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "SwsCNNMNIST":
-            mode = "SWSCNN"
-            model = SO3MNISTClassifier(n_alpha=120, n_beta=59,
-                                       arch="swscnn", fft_method="full",
-                                       widths=[1, 4, 16, 64, 256, 512],
-                                       resolutions=[59, 50, 25, 10, 2, 0],
-                                       spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                                       nonlinearity=nonlinearity,
-                                       use_batch_norm = use_batch_norm,
-                                       use_layer_norm = use_layer_norm,
-                                       )
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        elif model_type == "CNNMNIST":
-            mode = "CNN"
-            model = CNNMNISTClassifier(in_datatype="complex-vector",
-                                       n_alpha=120, n_beta=59,
-                                       widths=[2, 8, 32, 128, 256, 512])
-            optimizer = torch.optim.Adam(model.parameters(),1e-3)
-        else:
-            raise Exception(f"Combination {model_type} and {experiment} not supported.")
-
-    # SCALAR-TO-VECTOR MNIST
-    elif experiment == "MNIST-scalar-to-vector":
-        in_datatype = "complex-scalar"
-        out_datatype = "complex-vector"
-
-        train_dataset = SphericalMNISTDataset(split="train", mode="spherical",
-                                              n_alpha=120, n_beta=59,
-                                              in_datatype="scalar", out_datatype="vector",
-                                              rotation_type=rotate, compute_device=DEVICE,
-                                              caching=preload_dataset, verbose=verbose)
-        
-        val_dataset = SphericalMNISTDataset(split="val", mode="spherical",
-                                            n_alpha=120, n_beta=59,
-                                            in_datatype="scalar", out_datatype="vector",
-                                            rotation_type=rotate, rotations_list=rotations_list,
-                                            compute_device=DEVICE,
-                                            caching=preload_dataset, verbose=verbose)
-
-            
-        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
-                                           shuffle=True)
-        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
-                                         shuffle=False)
-
-        lossfnc = S2MSELoss(n_beta=59)
-
-        if model_type == "S3CNNUNet":
-            mode = "S3CNN"
-            model = SO3UNet(arch="s3cnn", fft_method="full",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 25, 50, 59],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity=nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SwsCNNUNet":
-            mode = "SWSCNN"
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 40, 30, 40, 50, 59],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[0,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [1,]],
-                            nonlinearity=nonlinearity,
-                            use_batch_norm = use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "CNNUNet":
-            mode = "CNN"
-            model = CNNUNet(n_alpha=120, n_beta=59, in_datatype="complex-scalar", out_datatype="complex-vector")
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        else:
-            raise Exception(f"Combination {model_type} and {experiment} not supported.")
-
-    # VECTOR-TO-SCALAR MNIST
-    elif experiment == "MNIST-vector-to-scalar":
-        in_datatype = "complex-vector"
-        out_datatype = "complex-scalar"
-
-        train_dataset = SphericalMNISTDataset(split="train", mode="spherical",
-                                              n_alpha=120, n_beta=59,
-                                              in_datatype="vector", out_datatype="scalar",
-                                              rotation_type=rotate, compute_device=DEVICE,
-                                              caching=preload_dataset, verbose=verbose)
-        
-        val_dataset = SphericalMNISTDataset(split="val", mode="spherical",
-                                            n_alpha=120, n_beta=59,
-                                            in_datatype="vector", out_datatype="scalar",
-                                            rotation_type=rotate, rotations_list=rotations_list,
-                                            compute_device=DEVICE,
-                                            caching=preload_dataset, verbose=verbose)
-
-
-        train_dataloader = make_dataloader(train_dataset, batch_size=batch_size,
-                                           shuffle=True)
-        val_dataloader = make_dataloader(val_dataset, batch_size=batch_size,
-                                         shuffle=False)
-
-        lossfnc = S2MSELoss(n_beta=59)
-
-        if model_type == "S3CNNUNet":
-            mode = "S3CNN"
-            model = SO3UNet(arch="s3cnn", fft_method="full",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 25, 50, 59],
-                            widths = [1, 2, 8, 30, 8, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,]],
-                            nonlinearity=nonlinearity,
-                            use_batch_norm=use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "SwsCNNUNet":
-            mode = "SWSCNN"
-            model = SO3UNet(arch="swscnn",
-                            n_alpha = 120, n_beta = 59,
-                            resolutions = [59, 50, 40, 50, 40, 50, 59],
-                            widths = [1, 4, 32, 128, 256, 48, 16, 1],
-                            spins = [[1,], [0,1], [0,1], [0,1], [0,1], [0,1], [0,1], [0,]],
-                            nonlinearity=nonlinearity,
-                            use_batch_norm=use_batch_norm,
-                            use_layer_norm = use_layer_norm,
-                            )
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        elif model_type == "CNNUNet":
-            mode = "CNN"
-            model = CNNUNet(n_alpha=120, n_beta=59, in_datatype="complex-vector", out_datatype="complex-scalar")
-            optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
-        else:
-            raise Exception(f"Combination {model_type} and {experiment} not supported.")
-
-    ### Sanity check ###
     else:
-        raise Exception(f"Experiment {experiment} not defined.")
+        lossfnc = S2MSELoss(n_beta=task.n_beta)
 
     # Load weights if provided
     if pretrained_weights is not None:
@@ -725,28 +213,20 @@ def run_training(gpu_id: int, # gpu id to use
             model.load_state_dict(torch.load(pretrained_weights, map_location=DEVICE))
         else:
             raise ValueError(f"Provided pretrained_weights path {pretrained_weights} is not a file.")
-        
+
         # If we are continuing training from a snapshot, we need to rename the old logs
         if starting_epoch > 0:
-            old_logs_path = get_experiment_path(experiment, mode, rotate, dataset_size, log_id)+"training_log.txt"
-            os.rename(old_logs_path,
-                      get_experiment_path(experiment, mode, rotate, dataset_size, log_id)+
-                      f"training_log_{time.time()}.txt")
+            os.rename(logs_path+"training_log.txt",
+                      logs_path+f"training_log_{time.time()}.txt")
 
     # Initialize logs directory
-    for epoch in range(total_epochs):
-        os.makedirs(os.path.dirname(
-            get_experiment_path(experiment, mode, rotate, dataset_size, log_id)\
-                                    +"training_data/"), exist_ok=True)
-        os.makedirs(os.path.dirname(
-            get_experiment_path(experiment, mode, rotate, dataset_size, log_id)\
-                                    +"snapshots/"), exist_ok=True)
+    os.makedirs(logs_path+"training_data/", exist_ok=True)
+    os.makedirs(logs_path+"snapshots/", exist_ok=True)
 
-    with open(get_experiment_path(experiment, mode, rotate, dataset_size, log_id)\
-              +"training_details.txt",'w') as ff:
+    with open(logs_path+"training_details.txt",'w') as ff:
             ff.write(f"-- BEGIN OF DETAILS --\n")
             ff.write(f"Model type: {model_type}\n")
-            if mode == "S3CNN" or mode == "SWSCNN":
+            if hasattr(model, "arch"):
                 ff.write(f" - architecture: {model.arch}\n")
                 ff.write(f" - fft method: {model.fft_method}\n")
                 ff.write(f" - resolutions: {model.resolutions}\n")
@@ -756,7 +236,7 @@ def run_training(gpu_id: int, # gpu id to use
                 ff.write(f" - use_batch_norm: {model.use_batch_norm}\n")
                 ff.write(f" - use_layer_norm: {model.use_layer_norm}\n")
             ff.write(f"Experiment: {experiment}\n")
-            if experiment == "MNIST-scalar-classification" or experiment == "MNIST-vf-classification" or experiment == "MNIST-scalar-to-vector" or experiment == "MNIST-vector-to-scalar":
+            if task.data == "mnist":
                 ff.write(f" - type of stitching (train): {train_dataset.mode}\n")
                 ff.write(f" - type of stitching (val): {val_dataset.mode}\n")
             ff.write(f"Model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}\n")
@@ -774,41 +254,33 @@ def run_training(gpu_id: int, # gpu id to use
             ff.write(f"Full params dict: {params}\n")
             ff.write(f"-- END OF DETAILS --\n")
 
-    with open(get_experiment_path(experiment, mode, rotate, dataset_size, log_id)\
-              +"training_log.txt",'w') as ff:
+    with open(logs_path+"training_log.txt",'w') as ff:
             ff.write(f"-- BEGIN OF LOG --\n")
-            
+
     torch.autograd.set_detect_anomaly(True)
     trainer = Trainer(gpu_id=gpu_id,
                       model = model,
-                      in_datatype = in_datatype,
-                      out_datatype = out_datatype,
+                      in_datatype = task.in_datatype,
+                      out_datatype = task.out_datatype,
                       train_dataloader = train_dataloader,
                       val_dataloader = val_dataloader,
                       optimizer = optimizer,
                       lossfnc = lossfnc,
                       save_every = save_every,
                       fft_method = fft_method,
-                      logs_path = get_experiment_path(experiment, mode, rotate, dataset_size, log_id),
-                      autoencoding = autoencoding,
+                      logs_path = logs_path,
+                      autoencoding = task.autoencoding,
                       rotate = rotate,
-                      share_d_matrices = share_d_matrices,
+                      share_d_matrices = spec.share_d_matrices,
                       gradient_accumulation=gradient_accumulation,
                       verbose = verbose,
                       )
-    
-    
+
     trainer.train(max_epochs=total_epochs, early_stopping=early_stopping, starting_epoch=starting_epoch)
 
-    with open(get_experiment_path(experiment, mode, rotate, dataset_size, log_id)\
-              +"training_log.txt",'a') as ff:
+    with open(logs_path+"training_log.txt",'a') as ff:
             ff.write(f"-- END OF LOG --\n")
-    
-    # Rescaling the loss range for plotting
-    if experiment == "MNIST-scalar-classification" or experiment == "MNIST-vf-classification":
-        max_loss = 1.000
-    else:
-        max_loss = 10
 
-    plot_data(trainer, get_experiment_path(experiment, mode, rotate, dataset_size, log_id),
-              max_loss=max_loss)
+    # Rescaling the loss range for plotting
+    max_loss = 1.000 if task.classification else 10
+    plot_data(trainer, logs_path, max_loss=max_loss)

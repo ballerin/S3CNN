@@ -28,6 +28,11 @@ Spins: the spins, e.g. [0, [0,1], [0,1], [0,1], [0,1], [0,1], 0]
 """
 
 class SO3Autoencoder(nn.Module):
+    """An equivariant UNet without the skip connections.
+
+    Everything reaching the output passes through the bottleneck, which is
+    what makes it an autoencoder rather than a UNet.
+    """
 
     def __init__(self,
                  n_alpha: int,
@@ -90,7 +95,7 @@ class SO3Autoencoder(nn.Module):
 
         super(SO3Autoencoder, self).__init__()
 
-        ### Load paramenters in the class ###
+        ### Load parameters in the class ###
 
         self.n_alpha = n_alpha
         self.n_beta = n_beta

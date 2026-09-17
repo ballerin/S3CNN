@@ -32,6 +32,7 @@ def beta_exponent(beta, mat):
     return scipy.linalg.expm(beta * mat) 
 
 def q_n(l,n):
+    """Ladder coefficient sqrt((l-n)(l+n+1)) of the J_y recursion."""
     return math.sqrt((l-n)*(l+n+1))
 
 def wigner_d_matrix(l, beta):
@@ -91,6 +92,11 @@ def vectorized_wigner_d_matrix(l, betas):
     return d
 
 def bDelta(l, Delta):
+    """Delta with the (-i)^m phase folded into its rows (the "black delta").
+
+    Delta is the Wigner d-matrix at beta = pi/2; the phase is what turns the
+    SO(3) transform into the separable form the CONJ_PROD tables precompute.
+    """
     bDelta = torch.einsum('m,mn->mn',(-1j)**torch.arange(-l,l+1), Delta)
     return bDelta
 
@@ -497,6 +503,7 @@ def compute_gradients(image):
 ###############################################
 
 def process_n(n):
+    """Collapse a one-element spin list to the bare int, validating the rest."""
     if isinstance(n, int):
         return n
     elif isinstance(n, list) or isinstance(n, tuple):
@@ -524,6 +531,7 @@ def normalise_spins(spins):
     return out
 
 def compute_spins(n):
+    """(has spin 0, has spin 1) for a spin spec of 0, 1, or a list of them."""
     if isinstance(n, int):
         return n==0, n==1
     elif isinstance(n, list) or isinstance(n, tuple):

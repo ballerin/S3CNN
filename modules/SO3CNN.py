@@ -49,6 +49,11 @@ Spins: the spins at every layer, e.g. [0, [0,1], [0,1], [0,1], [0,1], 0]
 """
 
 class SO3CNN(nn.Module):
+    """A flat stack of equivariant layers, all at one resolution.
+
+    No pooling and no skip connections: the ablation baseline the UNet is
+    measured against. `arch` picks the architecture; see `architectures.py`.
+    """
 
     def __init__(self,
                  n_alpha: int,
@@ -118,7 +123,7 @@ class SO3CNN(nn.Module):
 
         super(SO3CNN, self).__init__()
 
-        ### Load paramenters in the class ###
+        ### Load parameters in the class ###
 
         self.n_alpha = n_alpha
         self.n_beta = n_beta

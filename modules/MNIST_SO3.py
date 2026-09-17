@@ -19,6 +19,7 @@ from .SpectralModules import ComplexDropout, MagnitudeNonlinearity, PhaseCollaps
     FullSpectralLayerNormalization
 
 class SO3MNISTClassifier(nn.Module):
+    """Equivariant encoder down to l = 0, then a linear head over the classes."""
 
     def __init__(self,
                  n_alpha: int,

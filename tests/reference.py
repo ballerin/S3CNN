@@ -9,6 +9,9 @@ Index conventions, verified against `modules.SO3lib` in `test_wigner.py`:
     and n = j - l (Varshalovich et al. 1988, eq. 4.3.1);
   * spectral coefficients are flat, order l occupying `l**2 : (l+1)**2`;
   * spin-1 signals reuse the spin-0 layout with a structural zero at index 0.
+
+The factorial formula cancels catastrophically above about l = 30, so it is
+only a reference at low order; the suite stays at l <= 16.
 """
 
 from __future__ import annotations

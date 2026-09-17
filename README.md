@@ -95,7 +95,7 @@ below -- it needs pooling on the group. See `modules/architectures.py`.
 | `CNNUNet`             | CNN UNet architecture (CNN baseline)                                    |
 | `S3CNNAutoencoder`    | Autoencoder architecture with S3CNN layers              |
 | `SwsCNNAutoencoder`   | Autoencoder architecture with swsCNN layers                  |
-| `CNNautoencoder`      | Autoencoder architecture based on CNN (CNN baseline)                    |
+| `CNNAutoencoder`      | Autoencoder architecture based on CNN (CNN baseline)                    |
 | `S3CNNMNIST`          | Equivariant classifier based on S3CNN layers               |
 | `SwsCNNMNIST`         | Equivariant classifier based on swsCNN layers                |
 | `CNNMNIST`            | Classifier based on conv. layers (CNN baseline)                         |
@@ -179,7 +179,7 @@ WeatherDataset(root = "dataset/wind->wind/weekly_coarse_torch/",
 
 ### Spherical MNIST Dataset
 
-The data is not saved locally but retrieved on first runtime through the the Pytorch module when calling the `SphericalMNISTDataset` class the first time.
+The data is not saved locally but retrieved on first runtime through the PyTorch module when calling the `SphericalMNISTDataset` class the first time.
 
 ```
 SphericalMNISTDataset(split="train", mode="equirectangular",
@@ -204,15 +204,16 @@ $ python run_all_experiments.py --GPU 2,3,5
 A train schedule job and will result in a log being generatered which also contains the weights of the best performing iteration. At starttime an id will be assigned to the job. It has the following keys:
 | key             | Values                                 | Default   |
 | --------------- | -------------------------------------- | --------- |
-| `model_type`    | Name of the model (string)             | None      |
+| `model_type`    | A model key above; see `modules/zoo.py`| None      |
 | `experiment`    | `"wind->wind"`, `"temp->wind"`, ...    | None      |
 | `total_epochs`  | Any positive integer                   | None      |
 | `early_stopping`| Any positive integer                   | None      |
 | `save_every`    | Any positive integer                   | None      |
 | `batch_size`    | Any positive integer                   | None      |
+| `lr`            | Adam learning rate; untuned since M1   | `1e-3`    |
 | `fft_method`    | `"delta"`, `"full"` (not used for CNN) | `"full"`  |
 | `dataset_size`  | Any positive integer                   | None      |
-| `rotate`        | `"no"`, `"random"`                     | None      |
+| `rotate`        | `"no"`, `"offset"`, `"beta"`, `"full"` | None      |
 | `log_id`        | String                                 | None      |
 
 A test schedule job requires the corresponding training job to have been executed first. It requires the following keys:
