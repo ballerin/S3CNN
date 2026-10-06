@@ -101,7 +101,7 @@ def rectangular(tables, L: int, n: int) -> torch.Tensor:
     dense block is about twice the triangular data.
 
     Spin 1 has no `l = 0` term, so its list starts at `l = 1` (see
-    CONVENTIONS.md) and the first column here stays zero.
+    docs/conventions.md) and the first column here stays zero.
     """
     first = tables[0]
     n_beta = first.shape[0]

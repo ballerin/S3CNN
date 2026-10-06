@@ -15,7 +15,7 @@ authors = [
     { name = "Nello Blaser" },
 ]
 
-# Pinned to what the measurements in docs/ and bench/baseline/ were taken with.
+# Pinned to what the measurements in plan/measurements.md and bench/baseline/ were taken with.
 # cu118 wheels come from the index below; see README for the install line.
 dependencies = [
     "torch==2.3.0",

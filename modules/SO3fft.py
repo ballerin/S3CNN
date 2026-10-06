@@ -1,6 +1,6 @@
 """Spherical and SO(3) transforms.
 
-Encoding, grids, quadrature and table layout: see `CONVENTIONS.md`.
+Encoding, grids, quadrature and table layout: see `docs/conventions.md`.
 Algorithm: Kostelec & Rockmore 2008, sec. 3.
 """
 
@@ -173,7 +173,7 @@ class S2FFT(torch.nn.modules.Module):
 
     `f(A Z(gamma)) = f(A) e^{-i n gamma}` collapses the gamma integral, leaving
     an FFT over alpha and a sine-weighted quadrature against `d^l_{mn}` over
-    beta. Derivation: paper, appendix; conventions: `CONVENTIONS.md`.
+    beta. Derivation: paper, appendix; conventions: `docs/conventions.md`.
 
     [batch, channels, alpha, beta] -> [batch, channels, (L+1)^2]
     """
@@ -448,7 +448,7 @@ class SO3FFT(torch.nn.modules.Module):
             # channels against the grid. A real table costs half the bytes of a
             # complex one, but only if it is not fed to einsum: the (re, im)
             # axis einsum needs makes this contraction 2-5x slower than the
-            # broadcast multiply below. See docs/measurements.md.
+            # broadcast multiply below. See plan/measurements.md.
             A = rule.operator(d_matrices[l], l, n_beta).permute(1, 0, 2)
             x_hat.append((xx * A).sum(dim=-2))
 

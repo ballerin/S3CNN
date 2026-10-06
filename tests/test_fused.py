@@ -103,7 +103,74 @@ def test_the_slab_size_does_not_change_the_answer(chunk):
 
 
 def test_the_slab_heuristic_stays_within_the_grid():
-    assert fused.slab(179, 360, 360, 30) >= 1
-    assert fused.slab(179, 360, 360, 30) <= 179
+    assert 1 <= fused.slab(179, 360, 360, 30) <= 179
     assert fused.slab(20, 8, 8, 1) == 20          # a small layer takes every latitude
     assert fused.slab(179, 360, 360, 4096) == 1   # a huge one takes them one at a time
+
+
+def test_a_bigger_batch_takes_thinner_slabs():
+    """The grid grows with the batch and the budget does not, so the slab
+    shrinks. Batching still pays -- 1.6x less per sample at batch 8 than at 1 --
+    and the 256 MiB budget is a measured minimum in both directions; see the
+    sweep recorded above `SLAB_BYTES`."""
+    for batch in (1, 8, 32):
+        assert 1 <= fused.slab(179, 360, 360, 8, batch=batch) <= 179
+    assert fused.slab(179, 360, 360, 8, batch=32) < fused.slab(179, 360, 360, 8, batch=1)
+
+
+@pytest.mark.parametrize("arch", LIFTING)
+@pytest.mark.parametrize("train", [False, True], ids=["eval", "train"])
+def test_the_recompute_flag_does_not_change_gradients(arch, train):
+    """`recompute=False` keeps each slab instead of rebuilding it in the
+    backward pass. That is a memory-for-time trade and nothing else, so the
+    gradients must be identical -- including in train mode, where dropout is
+    live and draws per slab. `use_reentrant=False` restores the RNG state
+    around the recompute, so both paths see the same masks."""
+    grads = []
+    for recompute in (True, False):
+        torch.manual_seed(models.SEED)
+        model = flat(arch, fuse=True, recompute=recompute).train(train)
+        torch.manual_seed(1234)                  # same dropout masks either way
+        model(models.sample_input()).abs().sum().backward()
+        grads.append({n: p.grad for n, p in model.named_parameters()})
+
+    kept, rebuilt = grads
+    assert kept, "no parameters compared"
+    for name, a in kept.items():
+        assert a is not None, name
+        assert relerr(a.numpy(), rebuilt[name].numpy()) < 1e-6, name
+
+
+def test_the_recompute_flag_reaches_every_block():
+    """It is set on the network and read by each block, like `fuse`."""
+    for recompute in (True, False):
+        model = unet("s3cnn", fuse=True, recompute=recompute)
+        assert model.recompute is recompute
+        blocks = list(model.down) + list(model.up)
+        assert blocks, "no blocks to check"
+        assert all(b.recompute is recompute for b in blocks)
+
+
+def test_recompute_false_actually_skips_the_checkpoint(monkeypatch):
+    """The gradient tests above would pass even if the flag were ignored, since
+    both paths agree by construction. This one pins that it is honoured: the
+    checkpoint is what costs the second synthesis, so it must not be entered."""
+    calls = []
+    real = fused.checkpoint
+
+    def spy(fn, *args, **kwargs):
+        calls.append(fn)
+        return real(fn, *args, **kwargs)
+
+    monkeypatch.setattr(fused, "checkpoint", spy)
+    # `_run` only checkpoints when a tensor it was handed requires grad, and a
+    # block that reads straight from the data is handed one that does not. The
+    # input carries grad here so the path is actually reached.
+    x = models.sample_input().requires_grad_(True)
+    for recompute, want in ((True, True), (False, False)):
+        calls.clear()
+        torch.manual_seed(models.SEED)
+        model = flat("s3cnn", fuse=True, recompute=recompute).train(True)
+        model(x).abs().sum().backward()
+        assert bool(calls) is want, \
+            f"recompute={recompute}: checkpoint called {len(calls)} times"

@@ -34,7 +34,7 @@ def beta_exponent(beta, mat):
 def contract(equation: str, *operands):
     """`einsum(equation, *operands)` where only the last operand is complex.
 
-    The Wigner tables are real (see CONVENTIONS.md), so a real table against a
+    The Wigner tables are real (see `docs/conventions.md`), so a real table against a
     complex signal is two real multiplies rather than four, and the table costs
     half the memory. `equation` is written for the all-complex case; the real
     path threads the (re, im) axis through as `c`. Tables that are still

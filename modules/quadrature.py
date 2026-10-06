@@ -70,7 +70,7 @@ class RectangleRule(Quadrature):
     """Sine-weighted rectangle rule on `beta_j = pi (j+1) / (n_beta+1)`.
 
     Exact for nothing in particular, and rank-deficient at `L = n_beta`, where
-    there are more unknowns than samples. See `CONVENTIONS.md`.
+    there are more unknowns than samples. See `docs/conventions.md`.
 
     Candidates for replacing it: a pseudo-inverse analysis operator, Gauss-
     Legendre nodes, or oversampling beta.

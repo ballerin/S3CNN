@@ -1,25 +1,19 @@
-"""The SO(3) layer as one pass over slabs of latitudes.
+"""The SO(3) layer as one pass over slabs of latitudes beta.
+
+A "slab" is a contiguous slice of the beta axis (latitude) of the SO(3) grid.
 
 "Fused" is the term from GPU programming for combining several operations into
 one pass so that the values flowing between them stay in registers or cache and
 never travel out to memory and back. Here the operations being fused are the
-synthesis, the nonlinearity, the dropout and the integral over gamma, which
-unfused hand each other whole copies of the SO(3) grid.
+synthesis (inverse SO(3) transform), the nonlinearity, the dropout and smoothing
+(integral over gamma), which unfused hand each other whole copies of the SO(3) grid.
 
-Unfused, a lifting layer walks through three tensors the size of the SO(3)
-grid -- `[batch, channels, n_alpha, n_beta, n_gamma]`, gigabytes at production
-resolution -- and keeps the last one alive for the backward pass, all so that a
-pointwise nonlinearity can be applied and the gamma axis immediately integrated
-away.
+The transforms over alpha and gamma, the nonlinearity, the dropout and the integral
+over gamma all act within one beta. So the whole chain runs on a slab of latitudes at a
+time and the grid never exists at full size.
 
-Nothing after the beta-synthesis couples different latitudes: the transforms
-over alpha and gamma, the nonlinearity, the dropout and the integral over gamma
-all act within one beta. So the whole chain runs on a slab of latitudes at a
-time and the grid never exists at full size. Each slab is recomputed in the
-backward pass rather than stored (`torch.utils.checkpoint`).
-
-Beta is the axis to cut, not gamma: evaluating a single gamma needs every
-coefficient in `n`, so a gamma slab would still require the whole grid.
+To increase batch size at the expense of compute, each slab can be recomputed in the
+backward pass rather than stored (recompute=True).
 """
 
 from __future__ import annotations
@@ -29,14 +23,36 @@ from torch.utils.checkpoint import checkpoint
 
 from . import kernels
 
-#: Target bytes for one slab's grid; the slab count follows from the layer size.
+#: Target bytes for one slab's grid. Sized so a slab is big enough to keep the
+#: GPU busy and small enough that the few copies the chain makes of it do not
+#: crowd the allocator.
+#:
+#: Empirical tests show that 256 MiB is a good compromise. This could be further
+#: tuned.
 SLAB_BYTES = 256 * 2**20
 
 BYTES_COMPLEX64 = 8
 
+#: Flag `recompute`.
+#:
+#: Measured on the wind->wind `S3CNNUNet` training step (forward+backward,
+#: layer norm, A100-80GB), milliseconds per sample and peak memory:
+#:
+#:     batch    recompute        kept        peak
+#:         1      424 ms      352 ms   13.2 -> 15.7 GB
+#:         4      311 ms      240 ms   16.4 -> 29.2 GB
+#:         8      293 ms      225 ms   21.9 -> 46.6 GB
+#:        16      326 ms         OOM   32.9 -> over 80 GB
+#:
+#: So keeping the slabs is worth about 1.3x-1.9x but severely limits batch size.
+
 
 def slab(n_beta: int, n_alpha: int, n_gamma: int, channels: int, batch: int = 1) -> int:
-    """How many latitudes to take at once, at least one and at most all."""
+    """How many latitudes to take at once, at least one and at most all.
+
+    The slab size changes nothing about the result -- `tests/test_fused.py` pins
+    that -- so it only moves where the work happens.
+    """
     per_beta = batch * channels * n_alpha * n_gamma * BYTES_COMPLEX64
     return max(1, min(n_beta, SLAB_BYTES // max(per_beta, 1)))
 
@@ -169,20 +185,32 @@ def _analyse(grid, tables, rule, betas: slice, L: int, n_beta: int, into: list):
     return into
 
 
-def _run(fn, *tensors):
-    """Recompute in the backward pass instead of keeping the slab alive."""
-    if torch.is_grad_enabled() and any(t.requires_grad for t in tensors):
+def _run(fn, *tensors, recompute: bool = True):
+    """Run one slab, recomputing it in the backward pass unless told not to.
+
+    With `recompute` the slab is not kept alive: autograd discards it and runs
+    `fn` a second time during the backward pass to rebuild what it needs. That
+    is the whole memory argument of this file, and it costs a second synthesis
+    -- the most expensive kernel here -- on every training step. The note above
+    `slab` records what that costs and when refusing it is worth the memory.
+
+    Inference never pays it either way: with no graph to build there is nothing
+    to keep alive, so the branch below falls through to a direct call.
+    """
+    if recompute and torch.is_grad_enabled() and any(t.requires_grad for t in tensors):
         return checkpoint(fn, *tensors, use_reentrant=False)
     return fn(*tensors)
 
 
 def project(orders: "Orders", tables, sigma, dropout, smoothing,
-            n_alpha: int, n_beta: int, n_gamma: int, chunk: int | None = None):
+            n_alpha: int, n_beta: int, n_gamma: int, chunk: int | None = None,
+            recompute: bool = True):
     """Synthesis -> sigma -> dropout -> integral over gamma, slab by slab.
 
     Returns the S2 grid `[batch, channels, n_alpha, n_beta]`. This is the path
     of every architecture that projects back to the sphere after the
-    nonlinearity.
+    nonlinearity. `recompute=False` keeps each slab for the backward pass
+    instead of rebuilding it: same answer, less time, more memory.
     """
     head = orders.leading
     source, tensors, l_max = _source(orders, tables)
@@ -197,16 +225,18 @@ def project(orders: "Orders", tables, sigma, dropout, smoothing,
             return smoothing(dropout(sigma(
                 _synthesise(here, tables, betas, n_alpha, n_gamma, l_max))))
 
-        out[..., betas] = _run(one, *tensors)
+        out[..., betas] = _run(one, *tensors, recompute=recompute)
     return out
 
 
 def regroup(orders: "Orders", tables, rule, sigma, dropout, L: int,
-            n_alpha: int, n_beta: int, n_gamma: int, chunk: int | None = None):
+            n_alpha: int, n_beta: int, n_gamma: int, chunk: int | None = None,
+            recompute: bool = True):
     """Synthesis -> sigma -> dropout -> analysis, slab by slab, staying on SO(3).
 
     Returns coefficients, one block per order. This is the path of an
-    architecture that never projects back to the sphere.
+    architecture that never projects back to the sphere. `recompute` is as in
+    `project`.
     """
     head = orders.leading
     source, tensors, l_max = _source(orders, tables)
@@ -223,6 +253,6 @@ def regroup(orders: "Orders", tables, rule, sigma, dropout, L: int,
             empty = [torch.zeros((), dtype=torch.complex64, device=grid.device)] * (L + 1)
             return tuple(_analyse(grid, tables, rule, betas, L, n_beta, empty))
 
-        for l, part in enumerate(_run(one, *tensors)):
+        for l, part in enumerate(_run(one, *tensors, recompute=recompute)):
             out[l] = out[l] + part
     return out

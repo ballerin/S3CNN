@@ -86,6 +86,7 @@ def run_training(gpu_id: int, # gpu id to use
                  lr: float = 1e-3,
                  use_batch_norm: bool = False,
                  use_layer_norm: bool = False,
+                 recompute: bool = True,
                  fft_method:str = "full", # Only for SO(3) models
                  dataset_size: int = None,
                  rotate: str = "no",
@@ -120,6 +121,12 @@ def run_training(gpu_id: int, # gpu id to use
       it before comparing against published numbers, then fix the default here.
     - use_batch_norm: bool, whether to use batch normalization
     - use_layer_norm: bool, whether to use layer normalization
+    - recompute: bool, rebuild each SO(3) slab in the backward pass instead of
+      keeping it (lifting models only). True, the default, is the memory-lean
+      path. False spends memory to save about 1.3x on a training step and gives
+      bit-identical gradients, but it is the batch size that decides whether it
+      fits: measured on wind->wind S3CNNUNet at 80 GB, batch 8 takes 46.6 GB and
+      batch 16 does not fit at all. See the note beside `modules.fused.slab`.
     - fft_method: str, method to use for FFT; only "full" is implemented
     - dataset_size: int, number of training years for weather experiments (1 to 10)
     - rotate: str, rotation augmentation: "no", "offset", "beta" or "full"
@@ -170,6 +177,7 @@ def run_training(gpu_id: int, # gpu id to use
         lr = params.get('lr', lr)
         use_batch_norm = params.get('use_batch_norm', False)
         use_layer_norm = params.get('use_layer_norm', False)
+        recompute = params.get('recompute', True)
         log_id = params.get('log_id', None)
         dataset_size = params.get('dataset_size', None)  # None: not a weather experiment
         preload_dataset = params.get('preload_dataset', preload_dataset)
@@ -198,7 +206,7 @@ def run_training(gpu_id: int, # gpu id to use
     # architecture rejects should fail in seconds, not after the preload.
     model = zoo.build(experiment, model_type, nonlinearity=nonlinearity,
                       use_batch_norm=use_batch_norm, use_layer_norm=use_layer_norm,
-                      fft_method=fft_method)
+                      recompute=recompute, fft_method=fft_method)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     train_dataset, val_dataset = make_datasets(task, rotate, dataset_size, DEVICE,
@@ -241,6 +249,7 @@ def run_training(gpu_id: int, # gpu id to use
                 ff.write(f" - nonlinearity: {model.nonlinearity_type}\n")
                 ff.write(f" - use_batch_norm: {model.use_batch_norm}\n")
                 ff.write(f" - use_layer_norm: {model.use_layer_norm}\n")
+                ff.write(f" - recompute: {model.recompute}\n")
             ff.write(f"Experiment: {experiment}\n")
             if task.data == "mnist":
                 ff.write(f" - type of stitching (train): {train_dataset.mode}\n")

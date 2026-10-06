@@ -1,11 +1,12 @@
-"""One equivariant layer and the four networks assembled from it.
+"""Common equivariant layer and the types of networks assembled from it.
 
-Every network here is a stack of the same `Block`; they differ only in how the
-blocks are wired -- flat, UNet, autoencoder, classifier -- and `arch` decides
-what happens inside each block (see `modules/architectures.py`).
+- flat
+- UNet
+- autoencoder
+- classifier
 
-Spectra are flat `[B, C, (L+1)^2]` tensors on S2 and per-order lists on SO(3);
-the index convention is documented at the top of `SO3fft.py`.
+Every network here is a stack of the same `Block` and they differ only in how the
+blocks are wired. `arch` decides what happens inside each block.
 """
 
 from __future__ import annotations
@@ -75,6 +76,7 @@ class Block(nn.Module):
         spec = net.spec
         self.lifts, self.projects, self.conv_only = spec.lifts, spec.projects, conv_only
         self.fuse = net.fuse
+        self.recompute = net.recompute
 
         if spec.filters == "degree":
             self.conv = SpinSO3Conv(nfeature_in=f_in, nfeature_out=f_out, L=L)
@@ -150,10 +152,12 @@ class Block(nn.Module):
         synth = self.synthesis
         if self.projects:
             grid = fused.project(orders, tables, self.sigma, self.dropout, self.smoothing,
-                                 synth.n_alpha, synth.n_beta, synth.n_gamma)
+                                 synth.n_alpha, synth.n_beta, synth.n_gamma,
+                                 recompute=self.recompute)
             return self.analysis(grid, **net.slices())
         return fused.regroup(orders, tables, self.analysis.quadrature, self.sigma, self.dropout,
-                             self.analysis.L, synth.n_alpha, synth.n_beta, synth.n_gamma)
+                             self.analysis.L, synth.n_alpha, synth.n_beta, synth.n_gamma,
+                             recompute=self.recompute)
 
 
 class EquivariantNetwork(nn.Module):
@@ -168,7 +172,7 @@ class EquivariantNetwork(nn.Module):
                  arch: str | None = None, layer_style: str | None = None,
                  fft_method: str = "full", nonlinearity: str | None = None,
                  use_batch_norm: bool = True, use_layer_norm: bool = False,
-                 fuse: bool = True,
+                 fuse: bool = True, recompute: bool = True,
                  wigner_n0: list | None = None, wigner_n1: list | None = None,
                  f_wigner: list | None = None):
         super().__init__()
@@ -176,6 +180,11 @@ class EquivariantNetwork(nn.Module):
         #: Run the SO(3) chain slab by slab. Off restores the plain tensor path,
         #: which is what the fused one is checked against.
         self.fuse = fuse
+        #: Rebuild each slab in the backward pass instead of keeping it. Off
+        #: trades memory for about 1.3x on a training step and changes nothing
+        #: about the result; see the note beside `fused.slab` for the numbers
+        #: and for why it is not simply left off.
+        self.recompute = recompute
         self.spec = resolve(arch, layer_style)
         self.arch = self.spec.name
         self.nonlinearity_type = self.spec.check_sigma(
