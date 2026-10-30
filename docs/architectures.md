@@ -41,7 +41,7 @@ last must be a single value.
 
 | class | shape | notes |
 | ----- | ----- | ----- |
-| `SO3CNN` | flat stack at one band-limit | no pooling, no skips; the only topology with an `scnn` path, since it never pools |
+| `SO3CNN` | flat stack at one band-limit | no pooling, no skips |
 | `SO3UNet` | band-limit schedule, e.g. `[179, 100, 50, 100, 179]` | skips concatenate along channels; `resolutions` must be odd-length |
 | `SO3Autoencoder` | the same schedule without skips | bottleneck at the smallest band-limit |
 | `SO3MNISTClassifier` | schedule ending at $L = 0$ | `head=True` adds the classifier head |
@@ -74,8 +74,9 @@ model = zoo.build("wind->wind", "S3CNNUNet")
 $n_\alpha$, $n_\beta$, root); `ZOO` maps `(experiment, model_type)` to a class
 and its kwargs. Model types are named after the architecture: `S3CNN*` is
 `s3cnn`, `SwsCNN*` is `swscnn`, `CNN*` is the planar baseline. `Flat` and
-`OnlyOneSpin` entries are ablations. `scnn` has no `model_type` of its own yet
-and is reached by constructing `SO3CNN(arch="scnn", ...)` directly.
+`OnlyOneSpin` entries are ablations. `SCNN*` is `scnn`, registered only for
+the two MNIST classification tasks, with widths cut to match `S3CNNMNIST`'s
+parameter count; elsewhere build it directly with `arch="scnn"`.
 
 Building a model directly instead:
 

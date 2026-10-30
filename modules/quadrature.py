@@ -53,15 +53,17 @@ class Quadrature:
         """The per-latitude factor. Only meaningful when `diagonal`."""
         raise NotImplementedError
 
-    def operator(self, d: torch.Tensor, l: int, n_beta: int) -> torch.Tensor:
+    def operator(self, d: torch.Tensor, l: int, n_beta: int,
+                 betas: slice = slice(None)) -> torch.Tensor:
         """The complete analysis table for order `l`, shaped like `d^l` itself.
 
         `d` is the Wigner table for this order -- a spin column `[n_beta, 2l+1]`
-        on S2, the full `[n_beta, 2l+1, 2l+1]` block on SO(3). The general path
-        contracts the result directly, so a non-diagonal rule implements this
-        one method and nothing else.
+        on S2, the full `[n_beta, 2l+1, 2l+1]` block on SO(3) -- or only its
+        rows `betas`, as the fused path analyses one slab at a time. The
+        general path contracts the result directly, so a non-diagonal rule
+        implements this one method and nothing else.
         """
-        w = self.node_weights(n_beta, device=d.device, dtype=d.dtype)
+        w = self.node_weights(n_beta, device=d.device, dtype=d.dtype)[betas]
         scale = self.measure(n_beta) * self.order_scale(l)
         return scale * w.reshape(-1, *([1] * (d.dim() - 1))) * d
 

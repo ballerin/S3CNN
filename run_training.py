@@ -2,6 +2,7 @@ import os
 import pickle
 import time
 
+import numpy as np
 import torch
 
 from training_utils import plot_data
@@ -94,6 +95,7 @@ def run_training(gpu_id: int, # gpu id to use
                  preload_dataset:bool = True,
                  gradient_accumulation: int = 1,
                  detect_anomaly: bool = False,
+                 seed: int = None,
                  verbose: bool = False,
                  ):
     """
@@ -137,6 +139,10 @@ def run_training(gpu_id: int, # gpu id to use
       for every forward operation and checks every backward for NaN, which costs
       about 5x the step time, so it is for debugging a specific NaN, not for
       training runs
+    - seed: int, seeds torch and numpy before the model is built, which fixes the
+      initialisation, the shuffling, dropout and on-the-fly rotations. None,
+      the default, leaves them unseeded. The train/validation split has a
+      fixed seed of its own either way
     - verbose: bool, whether to print detailed logs during training
 
     Experiments:
@@ -151,6 +157,7 @@ def run_training(gpu_id: int, # gpu id to use
     Model types are named after the architecture (see `modules/architectures.py`):
     - "S3CNN*": s3cnn, ours -- SO(3) convolution, projected back to S2 after every nonlinearity
     - "SwsCNN*": swscnn, Esteves et al. 2020, 2023 -- spin-weighted filters, never leaves S2
+    - "SCNN*": scnn, Cohen et al. 2018 -- SO(3) convolution, stays on SO(3) until the output
     - "CNN*": planar CNN baseline on the lat/lon grid
     and after the topology: "*UNet", "*Autoencoder", "*MNIST" (classifier), and
     the ablations "*Flat" (no pooling or skips) and "*OnlyOneSpin".
@@ -184,6 +191,7 @@ def run_training(gpu_id: int, # gpu id to use
         verbose = params.get('verbose', verbose)
         gradient_accumulation = max(params.get('gradient_accumulation', 1), 1)
         detect_anomaly = params.get('detect_anomaly', False)
+        seed = params.get('seed', None)
 
     # Parameters check
     spec = zoo.spec(experiment, model_type)
@@ -201,6 +209,10 @@ def run_training(gpu_id: int, # gpu id to use
     logs_path = get_experiment_path(experiment, spec.mode, rotate, dataset_size, log_id)
 
     DEVICE = torch.device("cuda", gpu_id)
+
+    if seed is not None:
+        torch.manual_seed(seed)
+        np.random.seed(seed)  # the augmentation rotations draw from numpy
 
     # The model is built before the data is loaded: a nonlinearity its
     # architecture rejects should fail in seconds, not after the preload.
@@ -260,6 +272,7 @@ def run_training(gpu_id: int, # gpu id to use
             ff.write(f"Save every: {save_every}\n")
             ff.write(f"Optimizer: {optimizer}\n")
             ff.write(f"Batch size: {batch_size}\n")
+            ff.write(f"Seed: {seed}\n")
             ff.write(f"FFT method (if applicable): {fft_method}\n")
             ff.write(f"Dataset size: {dataset_size}\n")
             ff.write(f"rotate: {rotate}\n")

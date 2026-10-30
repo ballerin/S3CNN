@@ -179,7 +179,7 @@ def _analyse(grid, tables, rule, betas: slice, L: int, n_beta: int, into: list):
     grid = torch.fft.fftshift(grid, dim=(-3, -1))
     grid = torch.flip(grid, dims=(-3, -1))
     for l in range(L + 1):
-        A = rule.operator(tables[l][betas], l, n_beta).permute(1, 0, 2)
+        A = rule.operator(tables[l][betas], l, n_beta, betas).permute(1, 0, 2)
         chunk = grid[..., maf_a - l:maf_a + l + 1, :, maf_g - l:maf_g + l + 1]
         into[l] = into[l] + (chunk * A).sum(dim=-2)
     return into

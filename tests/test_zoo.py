@@ -20,7 +20,7 @@ KEYS = sorted(zoo.ZOO)
 
 
 def test_the_registry_holds_every_pair_the_training_chain_could_build():
-    assert len(zoo.ZOO) == 29
+    assert len(zoo.ZOO) == 31
     assert zoo.EXPERIMENTS == ["MNIST-scalar-classification", "MNIST-scalar-to-vector",
                                "MNIST-vector-to-scalar", "MNIST-vf-classification",
                                "autoencoder", "temp->wind", "wind->wind"]
@@ -30,9 +30,10 @@ def test_the_registry_holds_every_pair_the_training_chain_could_build():
 @pytest.mark.parametrize("experiment", zoo.EXPERIMENTS)
 def test_every_experiment_carries_all_three_architectures(experiment):
     """The point of the framework is one comparison across the same three
-    architectures; an experiment missing a baseline cannot make it."""
+    architectures; an experiment missing a baseline cannot make it. The sCNN
+    is a fourth, registered only where it is cheap."""
     archs = {zoo.ZOO[k].kwargs.get("arch", "cnn") for k in zoo.ZOO if k[0] == experiment}
-    assert archs == {"cnn", "s3cnn", "swscnn"}
+    assert {"cnn", "s3cnn", "swscnn"} <= archs <= {"cnn", "scnn", "s3cnn", "swscnn"}
 
 
 @pytest.mark.parametrize("key", KEYS, ids=lambda k: f"{k[0]}:{k[1]}")

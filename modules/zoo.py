@@ -9,9 +9,11 @@ never run. A single table cannot drift from itself.
 The entries are every pair the training chain could build -- the three
 architectures on each of the seven experiments, plus the `Flat` and
 `OnlyOneSpin` ablations -- taken from `run_training.py`, since that is what
-produced the checkpoints on disk. Model types are named after the
-architecture: `S3CNN*` is `s3cnn` (ours), `SwsCNN*` is `swscnn` (Esteves et
-al.), `CNN*` is the planar baseline; see `modules/architectures.py`.
+produced the checkpoints on disk -- and Cohen's sCNN on the two MNIST
+classification tasks, the only ones where it is cheap. Model types are named
+after the architecture: `S3CNN*` is `s3cnn` (ours), `SwsCNN*` is `swscnn`
+(Esteves et al.), `SCNN*` is `scnn` (Cohen et al.), `CNN*` is the planar
+baseline; see `modules/architectures.py`.
 
 Values a schedule sets are passed at build time and filtered against the
 class's own signature, so a CNN baseline is not handed a spin argument. Where
@@ -204,6 +206,17 @@ ZOO = {
             fft_method='full', widths=[1, 4, 16, 32, 64, 128, 256, 512],
             resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
             spins=[[0], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0]])),
+    # Cohen et al.'s sCNN, on S3CNNMNIST's band-limits. A group filter costs
+    # sum_l (2l+1)^2 per channel pair against (L+1)^2, so the widths are cut to
+    # match S3CNNMNIST's parameter count (~1.0M complex) rather than its widths.
+    # The hidden spins only select the layer norm's mean subtraction: a signal
+    # on the group has a mean in every channel.
+    ("MNIST-scalar-classification", "SCNNMNIST"): Spec(
+        cls=SO3MNISTClassifier, mode="SCNN",
+        kwargs=dict(n_alpha=120, n_beta=59, head=True, arch='scnn',
+            fft_method='full', widths=[1, 2, 2, 8, 24, 512],
+            resolutions=[59, 38, 14, 8, 2, 0],
+            spins=[[0], [0], [0], [0], [0], [0]])),
     # ablations
     ("MNIST-scalar-classification", "S3CNNMNISTOnlyOneSpin"): Spec(
         cls=SO3MNISTClassifier, mode="S3CNN",
@@ -230,12 +243,24 @@ ZOO = {
             widths=[1, 2, 8, 32, 128, 512],
             resolutions=[59, 38, 14, 8, 2, 0],
             spins=[[1], [0, 1], [0, 1], [0, 1], [0, 1], [0]])),
+    # The scalar SwsCNNMNIST with a spin-1 input, as the vector S3CNN is its
+    # scalar one. Until 2026-10-13 this was widths [1, 4, 16, 64, 256, 512] on
+    # [59, 50, 25, 10, 2, 0], 1.3M real parameters against the others' 2.0M: the
+    # vector S3CNN had been moved to its scalar configuration and this one never
+    # was. Table 4's vector swsCNN row, and checkpoints from before that date,
+    # are the old model and do not load into this one.
     ("MNIST-vf-classification", "SwsCNNMNIST"): Spec(
         cls=SO3MNISTClassifier, mode="SWSCNN",
         kwargs=dict(n_alpha=120, n_beta=59, arch='swscnn', fft_method='full',
-            widths=[1, 4, 16, 64, 256, 512],
-            resolutions=[59, 50, 25, 10, 2, 0],
-            spins=[[1], [0, 1], [0, 1], [0, 1], [0, 1], [0]])),
+            widths=[1, 4, 16, 32, 64, 128, 256, 512],
+            resolutions=[59, 50, 40, 30, 20, 10, 2, 0],
+            spins=[[1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0]])),
+    ("MNIST-vf-classification", "SCNNMNIST"): Spec(
+        cls=SO3MNISTClassifier, mode="SCNN",
+        kwargs=dict(n_alpha=120, n_beta=59, arch='scnn', fft_method='full',
+            widths=[1, 2, 2, 8, 24, 512],
+            resolutions=[59, 38, 14, 8, 2, 0],
+            spins=[[1], [0], [0], [0], [0], [0]])),
 
     # MNIST-scalar-to-vector -- Spherical MNIST to its Sobel gradient field.
     ("MNIST-scalar-to-vector", "CNNUNet"): Spec(

@@ -265,8 +265,7 @@ class EquivariantNetwork(nn.Module):
 
 
 class SO3CNN(EquivariantNetwork):
-    """A flat stack at one band-limit: no pooling, no skips. The ablation baseline,
-    and the only topology with an scnn path, since it never pools.
+    """A flat stack at one band-limit: no pooling, no skips. The ablation baseline.
 
     `widths` has one entry per feature map, `spins` likewise; `resolution` is L.
     """

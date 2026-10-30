@@ -102,6 +102,26 @@ def test_the_slab_size_does_not_change_the_answer(chunk):
     assert relerr(got.detach().numpy(), whole.detach().numpy()) < 1e-6
 
 
+@pytest.mark.parametrize("chunk", [1, 3, N_BETA, N_BETA + 10])
+def test_the_slab_size_does_not_change_the_answer_on_the_group(chunk):
+    """The same for `regroup`, which integrates each slab back onto SO(3): the
+    quadrature weights have to follow the slab's latitudes. They did not, and
+    every test grid fit in one slab, so the first full-size scnn found it."""
+    torch.manual_seed(models.SEED)
+    block = flat("scnn", fuse=False).eval().layers[0]
+    blocks = [torch.randn(2, 2, 2 * l + 1, 2 * l + 1, dtype=torch.complex64) for l in range(L + 1)]
+    tables = models._common()["f_wigner"]
+    synth = block.synthesis
+
+    def run(chunk):
+        return fused.regroup(fused.Orders(blocks), tables, block.analysis.quadrature,
+                             block.sigma, block.dropout, block.analysis.L,
+                             synth.n_alpha, synth.n_beta, synth.n_gamma, chunk=chunk)
+
+    for got, whole in zip(run(chunk), run(N_BETA)):
+        assert relerr(got.detach().numpy(), whole.detach().numpy()) < 1e-6
+
+
 def test_the_slab_heuristic_stays_within_the_grid():
     assert 1 <= fused.slab(179, 360, 360, 30) <= 179
     assert fused.slab(20, 8, 8, 1) == 20          # a small layer takes every latitude
